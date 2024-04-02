@@ -6,33 +6,39 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.nn.functional as F
 # from torchdiffeq import odeint_adjoint as odeint
-from torchdiffeq import odeint
+from torchdiffeq import odeint as odeint
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from .latent_neural_ode_model import LatentODEfunc, RecognitionRNN, Decoder, plot_graph, save_model, RunningAverageMeter
+from .latent_neural_ode_model import LatentODEfunc, RecognitionRNN, Decoder, plot_graph, save_model, RunningAverageMeter, log_normal_pdf, normal_kl
 
 MSELoss = torch.nn.MSELoss()
 
-def train_network(data_train, data_val, device, samp_ts, val_ts, n_itrs, latent_dim, n_hidden, obs_dim, rnn_hidden, dec_hidden, batch_size, lr=0.008, func=None, rec=None, dec=None):
+def train_network(data_train, data_val, device, samp_ts, val_ts, n_itrs, latent_dim, n_hidden, obs_dim, rnn_hidden, dec_hidden, batch_size, lr=0.008, func=None, rec=None, dec=None, checkpoint_itr=5, dropout=0.1, noise_std=0.2, alpha=1e-5):
     if func is None:
-        func = LatentODEfunc(latent_dim, n_hidden).to(device)
+        func = LatentODEfunc(latent_dim, n_hidden, dropout).to(device)
     if rec is None:
-        rec = RecognitionRNN(latent_dim, obs_dim, rnn_hidden, batch_size).to(device)
+        rec = RecognitionRNN(latent_dim, obs_dim, rnn_hidden, dropout, batch_size).to(device)
     if dec is None:
-        dec = Decoder(latent_dim, obs_dim, dec_hidden).to(device)
+        dec = Decoder(latent_dim, obs_dim, dec_hidden, dropout).to(device)
     params = (list(func.parameters()) + list(dec.parameters()) + list(rec.parameters()))
     optimizer = optim.Adam(params, lr=lr)
+    scheduler = ReduceLROnPlateau(optimizer)
     loss_meter = RunningAverageMeter()
-
+    
+    train_mses = []
+    train_kls = []
     train_losses = []
     val_losses = []
+    val_mses = []
+    val_kls = []
 
     torch.cuda.empty_cache()
 
     train_loader = DataLoader(dataset = data_train, batch_size = batch_size, shuffle = True, drop_last = True)
-    val_loader = DataLoader(dataset = data_val, batch_size = batch_size, shuffle = True, drop_last = True)
+    val_loader = DataLoader(dataset = data_val, batch_size = batch_size, shuffle = True, drop_last = False)
     try:
         for itr in range(n_itrs):
             for data in train_loader:
@@ -53,10 +59,23 @@ def train_network(data_train, data_val, device, samp_ts, val_ts, n_itrs, latent_
                 pred_x = dec(pred_z)
 
                 # compute loss
-                loss = MSELoss(pred_x, data)
+                noise_std_ = torch.zeros(pred_x.size()).to(device) + noise_std
+                noise_logvar = 2. * torch.log(noise_std_).to(device)
+                logpx = log_normal_pdf(
+                    data, pred_x, noise_logvar).sum(-1).sum(-1)
+                pz0_mean = pz0_logvar = torch.zeros(z0.size()).to(device)
+                analytic_kl = normal_kl(qz0_mean, qz0_logvar,
+                                        pz0_mean, pz0_logvar).sum(-1)
+                kl_loss = torch.mean(-logpx + analytic_kl, dim=0)
+                mse_loss = MSELoss(pred_x, data)
+                loss = alpha*kl_loss + mse_loss
+                
+#                 loss = MSELoss(pred_x, data)
                 loss.backward()
                 optimizer.step()
                 train_losses.append(loss.item())
+                train_kls.append(alpha*kl_loss.item())
+                train_mses.append(mse_loss.item())
 
             with torch.no_grad():
                 for data_val in val_loader:
@@ -75,21 +94,32 @@ def train_network(data_train, data_val, device, samp_ts, val_ts, n_itrs, latent_
                     #forward in time and solve ode for reconstructions
                     pred_z = odeint(func, z0, val_ts).permute(1, 0, 2)
                     pred_x = dec(pred_z)
-
-
-                    val_loss = MSELoss(pred_x, data_val)
+                    
+                    noise_std_ = torch.zeros(pred_x.size()).to(device) + noise_std
+                    noise_logvar = 2. * torch.log(noise_std_).to(device)
+                    logpx = log_normal_pdf(
+                        data_val, pred_x, noise_logvar).sum(-1).sum(-1)
+                    pz0_mean = pz0_logvar = torch.zeros(z0.size()).to(device)
+                    analytic_kl = normal_kl(qz0_mean, qz0_logvar,
+                                            pz0_mean, pz0_logvar).sum(-1)
+                    val_kl_loss = torch.mean(-logpx + analytic_kl, dim=0)
+                    val_mse_loss = MSELoss(pred_x, data_val)
+                    val_loss = alpha*val_kl_loss + val_mse_loss
+                    
                     val_losses.append(val_loss.item())
+                    val_kls.append(alpha*val_kl_loss.item())
+                    val_mses.append(val_mse_loss.item())
 
             # if ((itr > 1000) and (itr % 15 == 0)):
             #     pass
                 # save_model(tau, k, latent_dim, itr)
-            if (itr % 50 == 0):
-                print(f'Iter: {itr}, running avg mse: {loss.item()}, val_loss: {val_loss.item()}')
+            if (itr % checkpoint_itr == 0):
+                print(f'Iter: {itr}, total loss: {loss.item()}, kl_loss: {alpha*kl_loss.item()}, mse_loss: {mse_loss.item()} val loss: {val_loss.item()}, val_kl: {alpha*val_kl_loss.item()}, val_mse: {val_mse_loss.item()}')
     except KeyboardInterrupt:
         print("Training interrupted. Current model's loss:")
         print(f'Iter: {itr}, running avg mse: {loss.item()}, val_loss: {val_loss.item()}')
-        return func, rec, dec, train_losses, val_losses
-    return func, rec, dec, train_losses, val_losses
+        return func, rec, dec, train_losses, val_losses, val_mses
+    return func, rec, dec, train_losses, val_losses, val_mses
 
 def generate_data_from_model(ts_pos, samp_trajs_TE):
     with torch.no_grad():

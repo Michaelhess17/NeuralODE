@@ -1,3 +1,5 @@
+import numpy as np
+import torch
 def load_data_normalize(obs_dim, datafilepath, noise_std=0.2):
     data = np.load(datafilepath)
     traj_tot = np.load(datafilepath).reshape(72, 1500, obs_dim)
@@ -24,23 +26,24 @@ def split_data(data, train_size=0.5):
     n_train = int(n * train_size)
     return data[indices[:n_train], :, :], data[indices[n_train:], :, :]
 
-def change_trial_length(data, timesteps_per_subsample=100):
+def change_trial_length(data, timesteps_per_subsample=100, skip=1):
     num_subjects, num_time_steps, num_features = data.shape
     subsamples = []
     
     # Calculate the number of subsamples
-    num_subsamples = num_time_steps // timesteps_per_subsample
+    num_subsamples = (num_time_steps - timesteps_per_subsample) // skip + 1
     
     # Iterate over each subject
     for subject_data in data:
         # Iterate over each subsample
         for i in range(num_subsamples):
-            start_index = i * timesteps_per_subsample
+            start_index = i * skip
             end_index = start_index + timesteps_per_subsample
             subsample = subject_data[start_index:end_index, :]
             subsamples.append(subsample)
     
     return np.array(subsamples)
+
 
 def augment_data_with_noise(data, n_copies=5, noise_std=0.1):
     new_data = []

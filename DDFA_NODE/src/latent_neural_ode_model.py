@@ -11,19 +11,19 @@ import matplotlib.pyplot as plt
 
 class LatentODEfunc(nn.Module):
 
-    def __init__(self, latent_dim=8, nhidden=50):
+    def __init__(self, latent_dim=8, nhidden=50, dropout=0.1):
         super(LatentODEfunc, self).__init__()
         self.tanh = nn.Tanh()
         self.fc1 = nn.Linear(latent_dim, nhidden)
         self.fc2 = nn.Linear(nhidden, nhidden)
         self.fc3 = nn.Linear(nhidden, latent_dim)
-        # self.dropout = nn.Dropout(dropout)
+#         self.dropout = nn.Dropout(dropout)
         self.nfe = 0
 
     def forward(self, t, x):
         self.nfe += 1
         out = self.fc1(x)
-        # out = self.dropout(out)
+#         out = self.dropout(out)
         out = self.tanh(out)
         out = self.fc2(out)
         out = self.tanh(out)
@@ -32,7 +32,7 @@ class LatentODEfunc(nn.Module):
 
 class RecognitionRNN(nn.Module):
 
-    def __init__(self, latent_dim=8, obs_dim=46, nhidden=50, nbatch=1):
+    def __init__(self, latent_dim=8, obs_dim=46, nhidden=50, dropout=0.1, nbatch=1):
         super(RecognitionRNN, self).__init__()
         self.nhidden = nhidden
         self.nbatch = nbatch
@@ -44,9 +44,11 @@ class RecognitionRNN(nn.Module):
         self.lstm = nn.LSTMCell(6, nhidden)
         self.tanh = nn.Tanh()
         self.h2o = nn.Linear(nhidden, latent_dim*2)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, h, c):
         xo = self.h1o(x)
+        xo = self.dropout(xo)
         xo = self.tanh(xo)
         xxo = self.h3o(xo)
         hn, cn = self.lstm(xxo, (h,c))
