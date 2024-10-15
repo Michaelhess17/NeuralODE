@@ -14,12 +14,12 @@ def get_autocorr_1_e_time(x, threshold=1/np.e, maxlags=100):
     lags, autocorr = lags[lags>0], autocorr[lags>0]
 
     # Find the first time autocorrelation goes below the threshold
-    first_below_threshold = np.NaN
+    first_below_threshold = np.nan
     for lag, ac in zip(lags, autocorr):
         if ac < threshold:
             first_below_threshold = lag
             break
-    if first_below_threshold is np.NaN:
+    if first_below_threshold is np.nan:
         print("No 1/e time detected. Increase maxlags parameter!")
         
     return first_below_threshold
@@ -343,7 +343,47 @@ def takens_embedding(data, tau, k):
 
 def embed_data(data, e_time_threshold=1/np.e, maxlags=100, max_dim=12, nn_threshold=10, plot=False):
     best_delay = np.ceil(get_best_1_e_time(data, maxlags=maxlags, threshold=e_time_threshold)).astype(int)
+    print(best_delay)
     best_dim = np.ceil(get_embedding_dim(data, tau=best_delay, maxDim=max_dim, threshold=nn_threshold, plot=plot)).astype(int)
     print(f"Data has been embedded using a delay of {best_delay} timesteps and an embedding dimension of {best_dim}")
     return takens_embedding(data, best_delay, best_dim), best_dim, best_delay
+
+def convolutional_embedding(data, base, max_power):
+    """
+    Embeds the data using lags of powers of two (up to a given power) for each feature
+    in a multi-trial dataset and adds these embeddings as additional features along with the original features.
+    
+    Parameters:
+    data (array-like): The input data with dimensions (trials, timesteps, features).
+    max_power (int): The maximum power of two for the lags.
+
+    Returns:
+    np.ndarray: The embedded data with original and additional lagged features.
+    """
+    data = np.asarray(data)
+    trials, timesteps, features = data.shape
+    max_lag = int(np.ceil(base ** max_power))
+    if max_lag >= timesteps:
+        raise ValueError("The maximum lag is larger than or equal to the number of timesteps.")
+    
+    # Calculate the required lags
+    lags = [int(np.ceil(base ** i)) for i in range(max_power + 1)]
+    
+    # Initialize the embedded data array with the original and additional features
+    num_lags = len(lags)
+    total_features = features * (num_lags + 1)
+    embedded_data = np.zeros((trials, timesteps - max_lag, total_features))
+    
+    # Loop through each trial
+    for trial in range(trials):
+        # Loop through each feature
+        for feature in range(features):
+            original_series = data[trial, :, feature]
+            # Insert the original feature
+            embedded_data[trial, :, feature * (num_lags + 1)] = original_series[max_lag:]
+            # Fill the embedded data array with the appropriate lags for the current feature
+            for i, lag in enumerate(lags):
+                embedded_data[trial, :, feature * (num_lags + 1) + i + 1] = original_series[max_lag - lag: timesteps - lag]
+    
+    return embedded_data
     
