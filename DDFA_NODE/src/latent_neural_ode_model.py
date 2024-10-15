@@ -22,16 +22,16 @@ class GaussianNoise(nn.Module):
 
 class LatentODEfunc(nn.Module):
 
-    def __init__(self, latent_dim=8, nhidden=50, dropout=0.1):
+    def __init__(self, latent_dim=8, nhidden=50, dropout=0.1, noise_std=0.0, device=torch.device("cuda")):
         super(LatentODEfunc, self).__init__()
         self.latent_dim = latent_dim
         self.tanh = nn.Tanh()
         self.fc1 = nn.Linear(latent_dim, nhidden)
         self.fc2 = nn.Linear(nhidden, nhidden)
         self.fc3 = nn.Linear(nhidden, latent_dim)
-        self.noise = GaussianNoise(0.2)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        #self.dropout = nn.Dropout(dropout)
+        self.noise_std = noise_std
+        self.device = device
+#         self.dropout = nn.Dropout(dropout)
         self.nfe = 0
 
     def forward(self, t, x):
@@ -42,8 +42,7 @@ class LatentODEfunc(nn.Module):
         out = self.fc2(out)
         out = self.tanh(out)
         out = self.fc3(out)
-        if (t % 0.5 > 0.4) & (self.train == False):
-            out = self.noise(out)
+        # out += torch.rand(*out.shape).to(self.device) * self.noise_std
         return out
 
 class RecognitionRNN(nn.Module):
