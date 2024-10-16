@@ -188,3 +188,6 @@ DDFA_NODE/.ipynb_checkpoints/Demo-checkpoint.ipynb
 *.pkl
 *checkpoint*
 *.pdf
+old/
+**/*old*
+torchsde/
