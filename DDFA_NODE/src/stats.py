@@ -9,11 +9,11 @@ def get_bootstrapped_sample(variable,nboot=10000):
     for i in np.arange(nboot):
         temp = []
         num_lev1 = np.shape(variable)[0]
-        num_lev2 = np.shape(variable)[1]
+        num_lev2 = np.shape(variable[0])[0]
         rand_lev1 = np.random.choice(num_lev1,num_lev1)
         for j in rand_lev1:
             rand_lev2 = np.random.choice(num_lev2,num_lev2)
-            temp.append(variable[j,rand_lev2])
+            temp.append(variable[j][rand_lev2])
         
         #Note that this is the step at which actual computation is performed. In all cases for these simulations
         #we are only interested in the mean. But as elaborated in the text, this method can be extended to 
@@ -21,7 +21,7 @@ def get_bootstrapped_sample(variable,nboot=10000):
         bootstats[i] = np.mean(temp)
         
     return bootstats
-import numpy as np
+import numpy as np # type: ignore
 
 def get_direct_prob(sample1, sample2):
     '''
