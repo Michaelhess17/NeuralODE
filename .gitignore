@@ -191,3 +191,6 @@ DDFA_NODE/.ipynb_checkpoints/Demo-checkpoint.ipynb
 old/
 **/*old*
 torchsde/
+# pixi environments
+.pixi
+*.egg-info
