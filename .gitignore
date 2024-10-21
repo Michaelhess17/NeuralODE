@@ -1,10 +1,9 @@
 DDFA_NODE/models/
 *.ipynb_checkpoints/
 DDFA_NODE/src/.ipynb_checkpoints/
-DDFA_NODE/*/__pycache__/
-DDFA_NODE/*/__pycache__/
-DDFA_NODE/data/
-DDFA_NODE/logs/
+**/__pycache__/
+DDFA_NODE/**/__pycache__/
+data/
 */__pycache__/
 *.pdf
 *.png
@@ -16,7 +15,8 @@ DDFA_NODE/logs/
 *.webp
 *.ico
 DDFA_NODE/src/.ipynb_checkpoints/*
-
+**/.vscode/
+models/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
