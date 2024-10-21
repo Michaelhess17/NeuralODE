@@ -17,6 +17,7 @@ data/
 DDFA_NODE/src/.ipynb_checkpoints/*
 **/.vscode/
 models/
+.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
