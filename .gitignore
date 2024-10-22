@@ -195,3 +195,5 @@ torchsde/
 # pixi environments
 .pixi
 *.egg-info
+nohup.out
+*.ipynb
