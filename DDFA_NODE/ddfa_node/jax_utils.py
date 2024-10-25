@@ -60,15 +60,19 @@ def dataloader(arrays, batch_size, *, key):
 
 class Func(eqx.Module):
     mlp: eqx.nn.MLP
+    # bn: eqx.nn.BatchNorm
+    scale: float
 
-    def __init__(self, data_size, width_size, depth, *, key, **kwargs):
+    def __init__(self, data_size, width_size, depth, *, key, scale=1.0, **kwargs):
         super().__init__(**kwargs)
+        self.scale = scale
+        # self.bn = eqx.nn.BatchNorm(data_size, axis_name="batch")
         self.mlp = eqx.nn.MLP(
             in_size=data_size,
             out_size=data_size,
             width_size=width_size,
             depth=depth,
-            activation=jnn.softplus,
+            activation=lambda x: self.scale * jnn.tanh(x),
             key=key,
         )
 
@@ -94,18 +98,18 @@ class AugmentedNeuralODE(eqx.Module):
     hidden_to_ode: eqx.nn.MLP
     ode_to_data: eqx.nn.MLP
 
-    def __init__(self, data_size, width_size, hidden_size, ode_size, depth, *, key, **kwargs):
+    def __init__(self, data_size, width_size, hidden_size, ode_size, depth, *, key, scale=1.0, **kwargs):
         super().__init__(**kwargs)
         rec_key, func_key, dec_key = jr.split(key, 3)
         self.cell = eqx.nn.GRUCell(data_size, hidden_size, key=rec_key)
-        self.func = Func(ode_size, width_size, depth, key=func_key)
+        self.func = Func(ode_size, width_size, depth, key=func_key, scale=scale)
         
         self.hidden_to_ode = eqx.nn.MLP(
             in_size=hidden_size,
             out_size=ode_size,
             width_size=width_size,
             depth=1,
-            activation=jnn.softplus,
+            activation=jnn.tanh,
             key=key,
         )
         self.ode_to_data = eqx.nn.MLP(
@@ -113,12 +117,12 @@ class AugmentedNeuralODE(eqx.Module):
             out_size=data_size,
             width_size=width_size,
             depth=1,
-            activation=jnn.leaky_relu,
+            activation=lambda x: x,
             key=key,
         )
         
     def __call__(self, ts, yi):
-        hidden = jnp.zeros(self.cell.hidden_size)
+        hidden = jnp.ones(self.cell.hidden_size)
         for yi_i in yi[::-1]:
             hidden = self.cell(yi_i, hidden)
         y0 = self.hidden_to_ode(hidden)
@@ -141,7 +145,7 @@ class AugmentedNeuralODE(eqx.Module):
         return out
     
     def forward(self, ts, yi):
-        hidden = jnp.zeros(self.cell.hidden_size)
+        hidden = jnp.ones(self.cell.hidden_size)
         for yi_i in yi[::-1]:
             hidden = self.cell(yi_i, hidden)
         y0 = self.hidden_to_ode(hidden)
@@ -232,7 +236,7 @@ class StabilizedNeuralODE(eqx.Module):
         
     def __call__(self, ts, yi, max_steps=8192):
         if not self.linear:
-            hidden = jnp.zeros(self.cell.hidden_size)
+            hidden = jnp.ones(self.cell.hidden_size)
             for yi_i in yi[::-1]:
                 hidden = self.cell(yi_i, hidden)
             y0 = self.hidden_to_ode(hidden)
@@ -255,7 +259,7 @@ class StabilizedNeuralODE(eqx.Module):
         return out
     
     def forward(self, ts, yi):
-        hidden = jnp.zeros(self.cell.hidden_size)
+        hidden = jnp.ones(self.cell.hidden_size)
         for yi_i in yi[::-1]:
             hidden = self.cell(yi_i, hidden)
         y0 = self.hidden_to_ode(hidden)
@@ -296,6 +300,7 @@ def train_NODE(
     linear=False,
     model=None,
     plot_fn=None,
+    mlp_scale=0.2,
     *,
     k
 ):
@@ -307,9 +312,9 @@ def train_NODE(
 
     if model is None:
         if use_stabilized_node:
-            model = StabilizedNeuralODE(features, width_size, hidden_size, ode_size, depth, key=model_key, linear=linear)
+            model = StabilizedNeuralODE(features, width_size, hidden_size, ode_size, depth, key=model_key, linear=linear, scale=mlp_scale)
         else:
-            model = AugmentedNeuralODE(features, width_size, hidden_size, ode_size, depth, key=model_key)
+            model = AugmentedNeuralODE(features, width_size, hidden_size, ode_size, depth, key=model_key, scale=mlp_scale)
             
     @eqx.filter_value_and_grad
     def grad_loss(model, ti, yi, seeding_steps):
