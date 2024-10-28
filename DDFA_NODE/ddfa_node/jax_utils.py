@@ -72,7 +72,9 @@ class Func(eqx.Module):
             out_size=data_size,
             width_size=width_size,
             depth=depth,
-            activation=lambda x: self.scale * jnn.tanh(x),
+            activation=jnn.tanh,
+            # final_activation=lambda x: jnn.selu(x) * self.scale,
+            final_activation=lambda x: x,
             key=key,
         )
 
@@ -108,7 +110,7 @@ class AugmentedNeuralODE(eqx.Module):
             in_size=hidden_size,
             out_size=ode_size,
             width_size=width_size,
-            depth=1,
+            depth=2,
             activation=jnn.tanh,
             key=key,
         )
@@ -116,13 +118,13 @@ class AugmentedNeuralODE(eqx.Module):
             in_size=ode_size,
             out_size=data_size,
             width_size=width_size,
-            depth=1,
+            depth=2,
             activation=lambda x: x,
             key=key,
         )
         
     def __call__(self, ts, yi):
-        hidden = jnp.ones(self.cell.hidden_size)
+        hidden = jnp.zeros(self.cell.hidden_size)
         for yi_i in yi[::-1]:
             hidden = self.cell(yi_i, hidden)
         y0 = self.hidden_to_ode(hidden)
@@ -135,7 +137,7 @@ class AugmentedNeuralODE(eqx.Module):
             dt0=ts[1] - ts[0],
             y0=y0,
             # y0=hidden,
-            stepsize_controller=diffrax.PIDController(rtol=1e-3, atol=1e-5),
+            stepsize_controller=diffrax.PIDController(rtol=1e-4, atol=1e-6),
             saveat=diffrax.SaveAt(ts=ts),
 #             max_steps=,
 #             adjoint=diffrax.BacksolveAdjoint()
@@ -145,7 +147,7 @@ class AugmentedNeuralODE(eqx.Module):
         return out
     
     def forward(self, ts, yi):
-        hidden = jnp.ones(self.cell.hidden_size)
+        hidden = jnp.zeros(self.cell.hidden_size)
         for yi_i in yi[::-1]:
             hidden = self.cell(yi_i, hidden)
         y0 = self.hidden_to_ode(hidden)
@@ -179,7 +181,8 @@ class StabilizedFunc(eqx.Module):
             out_size=data_size,
             width_size=width_size,
             depth=depth,
-            activation=jnn.softplus,
+            activation=jnn.tanh,
+            final_activation=lambda x: x,
             key=model_key,
         )
         self.A = jr.uniform(A_key, (data_size, data_size), minval=-jnp.sqrt(1/3), maxval=jnp.sqrt(1/3))
@@ -202,8 +205,8 @@ class LinearFunc(eqx.Module):
 class StabilizedNeuralODE(eqx.Module):
     cell: eqx.nn.GRUCell
     func: StabilizedFunc
-    hidden_to_ode: eqx.nn.MLP
-    ode_to_data: eqx.nn.MLP
+    # hidden_to_ode: eqx.nn.MLP
+    # ode_to_data: eqx.nn.MLP
     linear: bool
     
 
@@ -215,33 +218,34 @@ class StabilizedNeuralODE(eqx.Module):
         if linear:
             self.func = LinearFunc(ode_size, key=func_key)
         else:
-            self.func = StabilizedFunc(ode_size, width_size, depth, key=func_key)
+            self.func = StabilizedFunc(data_size, width_size, depth, key=func_key)
         
-        self.hidden_to_ode = eqx.nn.MLP(
-            in_size=hidden_size,
-            out_size=ode_size,
-            width_size=width_size,
-            depth=1,
-            activation=jnn.softplus,
-            key=key,
-        )
-        self.ode_to_data = eqx.nn.MLP(
-            in_size=ode_size,
-            out_size=data_size,
-            width_size=width_size,
-            depth=1,
-            activation=jnn.leaky_relu,
-            key=key,
-        )
+        # self.hidden_to_ode = eqx.nn.MLP(
+        #     in_size=hidden_size,
+        #     out_size=ode_size,
+        #     width_size=width_size,
+        #     depth=1,
+        #     activation=jnn.tanh,
+        #     key=key,
+        # )
+        # self.ode_to_data = eqx.nn.MLP(
+        #     in_size=ode_size,
+        #     out_size=data_size,
+        #     width_size=width_size,
+        #     depth=1,
+        #     activation=jnn.tanh,
+        #     final_activation=lambda x: x,
+        #     key=key,
+        # )
         
     def __call__(self, ts, yi, max_steps=8192):
-        if not self.linear:
-            hidden = jnp.ones(self.cell.hidden_size)
-            for yi_i in yi[::-1]:
-                hidden = self.cell(yi_i, hidden)
-            y0 = self.hidden_to_ode(hidden)
-        else:
-            y0 = yi[0, :]
+        # if not self.linear:
+        #     hidden = jnp.zeros(self.cell.hidden_size)
+        #     for yi_i in yi[::-1]:
+        #         hidden = self.cell(yi_i, hidden)
+        #     y0 = self.hidden_to_ode(hidden)
+        # else:
+        y0 = yi[0, :]
         solution = diffrax.diffeqsolve(
             diffrax.ODETerm(self.func),
             diffrax.Tsit5(),
@@ -249,17 +253,17 @@ class StabilizedNeuralODE(eqx.Module):
             t1=ts[-1],
             dt0=ts[1] - ts[0],
             y0=y0,
-            stepsize_controller=diffrax.PIDController(rtol=1e-4, atol=1e-6),
+            # stepsize_controller=diffrax.PIDController(rtol=1e-4, atol=1e-6),
             saveat=diffrax.SaveAt(ts=ts),
             max_steps=max_steps
         )
         out = solution.ys
-        if not self.linear:
-            out = jax.vmap(self.ode_to_data)(out)
+        # if not self.linear:
+        #     out = jax.vmap(self.ode_to_data)(out)
         return out
     
     def forward(self, ts, yi):
-        hidden = jnp.ones(self.cell.hidden_size)
+        hidden = jnp.zeros(self.cell.hidden_size)
         for yi_i in yi[::-1]:
             hidden = self.cell(yi_i, hidden)
         y0 = self.hidden_to_ode(hidden)
@@ -312,7 +316,7 @@ def train_NODE(
 
     if model is None:
         if use_stabilized_node:
-            model = StabilizedNeuralODE(features, width_size, hidden_size, ode_size, depth, key=model_key, linear=linear, scale=mlp_scale)
+            model = StabilizedNeuralODE(features, width_size, hidden_size, ode_size, depth, key=model_key, linear=linear)
         else:
             model = AugmentedNeuralODE(features, width_size, hidden_size, ode_size, depth, key=model_key, scale=mlp_scale)
             
@@ -371,7 +375,7 @@ def train_NODE(
                     end = time.time()
                     
 
-                    print(f"Step: {step}, Loss: {loss}, Computation time: {end - start}")
+                    print(f"Step: {step}, Loss: {loss}, Current Best Loss: {best_loss}, Computation time: {end - start}")
     
                     if plot:
                         # plt.plot(_ts, _ys[0, :, 0], c="dodgerblue", label="Data")
