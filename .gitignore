@@ -196,5 +196,4 @@ torchsde/
 .pixi
 *.egg-info
 nohup.out
-*.ipynb
 outputs
