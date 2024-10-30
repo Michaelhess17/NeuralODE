@@ -236,7 +236,7 @@ def backtrace_multipliers(splits, eigVals, Ns, subject=0, nPoints=5, phase=50, e
             plt.scatter(0, coeffs[-1], c='r')
             plt.errorbar(0, coeffs[-1], int_err, capsize=5, fmt='o', c='r')
             plt.xlabel("$\\frac{1}{N}$")
-            plt.ylabel("$\lambda$")
+            plt.ylabel(r"$\lambda$")
             plt.title(plot_title)
         else:
             ax.scatter(1/Ns[subject]/splits, mean, c='k')
@@ -247,7 +247,7 @@ def backtrace_multipliers(splits, eigVals, Ns, subject=0, nPoints=5, phase=50, e
             ax.scatter(0, coeffs[-1], c='r')
             ax.errorbar(0, coeffs[-1], int_err, capsize=5, fmt='o', c='r')
             ax.set_xlabel("$\\frac{1}{N}$")
-            ax.set_ylabel("$\lambda$")
+            ax.set_ylabel(r"$\lambda$")
             ax.set_title(plot_title)
         plt.tight_layout()
     # return fit.intercept, fit.intercept_stderr
@@ -433,7 +433,7 @@ def backtrace_multipliers_pct(pcts, eigVals, Ns, subject=0, nPoints=5, phase=50,
             plt.scatter(0, lr.intercept_[0], c='r')
             plt.errorbar(1/(pcts*Ns[subject]), mean, std, capsize=5, fmt='o', c='k')
             plt.xlabel("$\\frac{1}{N}$")
-            plt.ylabel("$\lambda$")
+            plt.ylabel(r"$\lambda$")
             plt.title(plot_title)
         else:
             ax.scatter(1/(pcts*Ns[subject]), mean)
@@ -442,7 +442,7 @@ def backtrace_multipliers_pct(pcts, eigVals, Ns, subject=0, nPoints=5, phase=50,
             ax.scatter(0, fit.intercept, c='r')
             ax.errorbar(1/(pcts*Ns[subject]), mean, std, capsize=5, fmt='o', c='k')
             ax.set_xlabel("$\\frac{1}{N}$")
-            ax.set_ylabel("$\lambda$")
+            ax.set_ylabel(r"$\lambda$")
             ax.set_title(plot_title)
         plt.tight_layout()
     return fit.intercept, fit.intercept_stderr
