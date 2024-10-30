@@ -36,17 +36,3 @@ diffrax = "*"
 optax = "*"
 ddfa_node = { path = "./DDFA_NODE", editable = true}
 delase = { path = "../delase", editable = true}
-
-
-
-# Also have installed DeLASE from my fork on github
-# https://github.com/michaelhess17/DeLASE
-# `git clone https://github.com/michaelhess17/DeLASE.git`
-# `cd DeLASE`
-# `python -m pip install -e .`
-
-# Also have installed ddfa_node from my fork on github
-# https://github.com/michaelhess17/ddfa_node
-# `git clone https://github.com/michaelhess17/ddfa_node.git`
-# `cd ddfa_node`
-# `python -m pip install -e .`
