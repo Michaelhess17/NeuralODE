@@ -34,6 +34,9 @@ numpy = ">=2.1.2,<3"
 jax = { version = "*", extras = ["cuda12"] }
 diffrax = "*"
 optax = "*"
+ddfa_node = { path = "./DDFA_NODE", editable = true}
+delase = { path = "../delase", editable = true}
+
 
 
 # Also have installed DeLASE from my fork on github

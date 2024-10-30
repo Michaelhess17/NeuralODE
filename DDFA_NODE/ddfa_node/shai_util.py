@@ -1,25 +1,27 @@
 import os
 import pandas as pd
-import numpy as np
+import jax.numpy as jnp
 import pylab as plt
 from scipy import signal
 from collections import deque
 from scipy.interpolate import interp1d
 from scipy.special import erfc
 import copy
+import jax
+from jax import random
 
 def affenize(Q):
     '''
         Function:
             Q -> [Q 1]
         Input:
-            Q - numpy array (m x n)
+            Q - JAX array (m x n)
         Output:
-            Q_ - numpy array (m x n+1)
+            Q_ - JAX array (m x n+1)
     '''
-    m, n = np.shape(Q)
-    Q_ = np.ones((m,n+1))
-    Q_[:,:-1] = Q
+    m, n = Q.shape
+    Q_ = jnp.ones((m, n+1))
+    Q_ = Q_.at[:,:-1].set(Q)
     return Q_
 
 def set_mapper(S, Z, o, M=None):
@@ -28,32 +30,32 @@ def set_mapper(S, Z, o, M=None):
             Assumes that S is monotonically increasing
             Y_i+o = A_o * X_i
         Input:
-            S - numpy array (m x 1)
-            Z - numpy array (m x n)
+            S - JAX array (m x 1)
+            Z - JAX array (m x n)
             o - value (1 x 1)
         Output:
-            Y - numpy array (l x n)
-            X - numpy array (l x n)
+            Y - JAX array (l x n)
+            X - JAX array (l x n)
     '''
-    if np.shape(M) == ():
-        M = range(np.shape(Z)[0])
+    if M is None:
+        M = jnp.arange(Z.shape[0])
 
-    n = np.shape(Z)[1]
+    n = Z.shape[1]
     I_x = deque()
 
     for i in M:
         s_i = S[i] + o
-        i_plus = np.where(s_i < S)[0]
+        i_plus = jnp.where(s_i < S)[0]
         if len(i_plus) > 0:
             I_x.append(i)
-    l, = np.shape(I_x)
-    X = np.zeros((l, n))
-    Y = np.zeros((l, n))
+    l = len(I_x)
+    X = jnp.zeros((l, n))
+    Y = jnp.zeros((l, n))
     f_y = interp1d(S, Z, axis=0)
     for j, i_x in enumerate(I_x):
-        X[j,:] = Z[i_x, :]
-        Y[j,:] = f_y(S[i_x]+o)
-    return Y, X, np.array(I_x)
+        X = X.at[j,:].set(Z[i_x, :])
+        Y = Y.at[j,:].set(f_y(S[i_x]+o))
+    return Y, X, jnp.array(I_x)
 
 def set_mapper_2(S, Z, o):
     '''
@@ -61,82 +63,64 @@ def set_mapper_2(S, Z, o):
             Assumes that S is monotonically increasing
             Y_i+o = A_o * X_i
         Input:
-            S - numpy array (m x 1)
-            Z - numpy array (m x n)
+            S - JAX array (m x 1)
+            Z - JAX array (m x n)
             o - value (1 x 1)
         Output:
-            Y - numpy array (l x n)
-            X - numpy array (l x n)
+            Y - JAX array (l x n)
+            X - JAX array (l x n)
     '''
-    m, n = np.shape(Z)
+    m, n = jnp.shape(Z)
     I_x = deque()
     for i in range(m):
         s_i = S[i] + o
-        i_plus = np.where(S >= s_i)[0]
+        i_plus = jnp.where(S >= s_i)[0]
         if len(i_plus) > 0:
             I_x.append(i)
-    l, = np.shape(I_x)
-    X = np.zeros((l, n))
-    Y = np.zeros((l, n))
+    l, = jnp.shape(I_x)
+    X = jnp.zeros((l, n))
+    Y = jnp.zeros((l, n))
     f_y = interp1d(S, Z, axis=0)
     for j, i_x in enumerate(I_x):
-        X[j,:] = Z[i_x, :]
-        Y[j,:] = f_y(S[i_x]+o)
-    return Y, X, np.array(I_x)
+        X = X.at[j,:].set(Z[i_x, :])
+        Y = Y.at[j,:].set(f_y(S[i_x]+o))
+    return Y, X, jnp.array(I_x)
 
-'''
-def bootstrapPhaseResiduals(Yh, Y, phi, samples):
-    ORDER = 3
-    m, n = np.shape(Y)
-    np.random.seed(2)
-    fsList = []
-
-    #for i in range(samples):
-    for i in [0, 1]:
-        I = np.random.choice(range(m), m)
-        fs = shaiutil.FourierSeries()
-        fsList.append(fs.fit(ORDER, phi[np.newaxis,:], (Yh[I]-Y[I]).T))
-
-    #fs = shaiutil.FourierSeries()
-    #fs.coef = np.mean([fs.coef for fs in fsList], axis=0)
-    #fs.m = np.mean([fs.m for fs in fsList], axis=0)
-    #fs.om = np.mean([fs.om for fs in fsList], axis=0)
-'''
-
-def bootstrap_residuals(Yh, Y, s):
+def bootstrap_residuals(Yh, Y, s, key):
     '''
         Function:
             Finds r = E[Y-Yh] quantity and then bootstraps
         Input:
-            Yh - numpy array (m x n)
-            Y - numpy array (m x n)
+            Yh - JAX array (m x n)
+            Y - JAX array (m x n)
             s - int
+            key - JAX random.PRNGKey for reproducibility
         Output:
-            R - numpy array (s x n)
+            R - JAX array (s x n)
     '''
-    m, n = np.shape(Y)
-    R = np.zeros((s, n))
+    m, n = Y.shape
+    R = jnp.zeros((s, n))
     for i in range(s):
-        I = np.random.choice(range(m), m)
-        R[i,:] = np.mean(np.abs(Y[I] - Yh[I]), axis=0)
+        I = random.choice(key, jnp.arange(m), shape=(m,), replace=True)
+        R = R.at[i,:].set(jnp.mean(jnp.abs(Y[I] - Yh[I]), axis=0))
     return R
 
-def bootstrap_rrv(Yh, Y, s):
+def bootstrap_rrv(Yh, Y, s, key):
     '''
         Function:
             Finds r = Var[Y-Yh]/Var[Y] quantity and then bootstraps
         Input:
-            Yh - numpy array (m x n)
-            Y - numpy array (m x n)
+            Yh - jax array (m x n)
+            Y - jax array (m x n)
             s - int
         Output:
-            R - numpy array (s x n)
+            R - jax array (s x n)
     '''
-    m, n = np.shape(Y)
-    RRV = np.zeros((s, n))
+    m, n = jnp.shape(Y)
+    RRV = jnp.zeros((s, n))
     for i in range(s):
-        I = np.random.choice(range(m),m)
-        RRV[i,:] = np.var(Y[I] - Yh[I], axis=0)/np.var(Y[I], axis=0)
+        I = random.choice(key, jnp.arange(m), shape=(m,), replace=True)
+        RRV = RRV.at[i,:].set(jnp.var(Y[I] - Yh[I], axis=0)/jnp.var(Y[I], axis=0))
     return RRV
 
 def detrend(X):
@@ -144,30 +128,30 @@ def detrend(X):
         Function:
             Detrends the columns of a matrix
         Input:
-            X - numpy array (m x n)
+            X - JAX array (m x n)
         Output:
-            X - numpy array (m x n)
+            X - JAX array (m x n)
     '''
-    for k in range(np.shape(X)[1]):
-        h = X[:,k]
+    for k in range(X.shape[1]):
+        h = X[:, k]
         b, a = signal.butter(2, .01)
         h = signal.filtfilt(b, a, h.T).T
-        X[:,k] -= h
+        X = X.at[:, k].set(X[:, k] - h)
     return X
 
-def phase_discounting(phi_0, phi, STD_DEVIATION = 0.5):
+def phase_discounting(phi_0, phi, STD_DEVIATION=0.5):
     '''
         Function:
             Takes a current phasor, phi_0, and finds its weighted phase
             difference with respect an array, phi.
         Input:
             phi_0 - complex scalar
-            phi - complex numpy array (m)
+            phi - complex JAX array (m)
         Output:
-            weighted_diff - numpy array (m)
+            weighted_diff - JAX array (m)
     '''
     phase_diff = phi_0 / phi
-    weighted_diff = erfc(np.abs(np.arctan2(phase_diff.imag, phase_diff.real)/(STD_DEVIATION*np.sqrt(2))))
+    weighted_diff = erfc(jnp.abs(jnp.arctan2(phase_diff.imag, phase_diff.real) / (STD_DEVIATION * jnp.sqrt(2))))
     return weighted_diff
 
 def integrateTorque(T,X,dt,side='Ipsi'):
@@ -217,7 +201,6 @@ if __name__ == "__main__":
 
 
 import warnings
-from numpy import *
 import scipy
 from scipy.linalg import eig as geneig
 from scipy.signal import lfilter
@@ -284,7 +267,7 @@ def smooth(x,window_len=10,window='hanning'):
 
     see also:
 
-    numpy.hanning, numpy.hamming, numpy.bartlett, numpy.blackman, numpy.convolve
+    jax.numpy.hanning, jax.numpy.hamming, jax.numpy.bartlett, jax.numpy.blackman, jax.numpy.convolve
     scipy.signal.lfilter
 
     TODO: the window parameter could be the window itself if an array instead of a string
@@ -699,7 +682,7 @@ def princomp( x ):
   latent = s**2
   return latent,U,score.reshape(x.shape)
 
-def tlstsq(A,B,inverse = linalg.inv):
+def tlstsq(A,B,inverse = jnp.linalg.inv):
     """Total least squares regression
          A -- m x n
          B -- m x r
@@ -737,10 +720,7 @@ def hilbert( x ):
     By Shai Revzen, Berkeley 2008
   """
   n = x.shape[-1]
-  global fft,ifft
-  if not callable(fft):
-    fft = fft.fft
-    ifft = fft.ifft
+  from jax.numpy.fft import fft, ifft
   f = fft(x)
   h = zeros(f.shape)
   if n % 2 == 0:
@@ -846,7 +826,7 @@ class FourierSeries(object):
   def integrate( self, z0=0 ):
     """Integrate fourier series, and set the mean values to z0
     """
-    self.m[:] = asarray(z0)
+    self.m.at[:].set(asarray(z0))
     self.coef = -1j * self.coef / self.om.T
     return self
 
@@ -889,7 +869,7 @@ class FourierSeries(object):
        data is a row or two-dimensional array, with data points in columns
     """
 
-    phi = reshape( mod(ph + math.pi,2*math.pi) - math.pi, (1,len(ph.flat)) )
+    phi = reshape( mod(ph + math.pi,2*math.pi) - math.pi, (1,len(ph.flatten())) )
     if phi.shape[1] != data.shape[1]:
       raise IndexError(
         "There are %d phase values for %d data points"

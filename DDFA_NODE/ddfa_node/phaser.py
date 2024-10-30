@@ -1,8 +1,9 @@
-from numpy import *
+from jax import numpy as jnp
+from jax import lax
 from .shai_util import *
+from .shai_util import hilbert
 from scipy import signal
 import warnings
-import numpy as np
 
 """
 The phaser module provides an implementation of the phase estimation algorithm
@@ -48,7 +49,7 @@ class ZScore( object ):
     # elif we got y --> use fromData
     # else --> create empty object with None in members
     if M is not None:
-      self.fromCovAndMean( mean(y, 1), M)
+      self.fromCovAndMean( jnp.mean(y, 1), M)
     elif y is not None:
       self.fromData( y )
     else:
@@ -66,8 +67,8 @@ class ZScore( object ):
     """
     self.y0 = y0
     self.M = M
-    (D, V) = linalg.eig( M )
-    self.S = dot( V.transpose(), diag( 1/sqrt( D ) ) )
+    (D, V) = jnp.linalg.eig( M )
+    self.S = jnp.dot( V.transpose(), jnp.diag( 1/jnp.sqrt( D ) ) )
 
   def fromData( self, y ):
     """
@@ -77,9 +78,9 @@ class ZScore( object ):
     INPUT:
       y -- DxN -- N measurements of a time series in D dimensions
     """
-    self.y0 = mean( y, 1 )
-    self.M = diag( std( diff( y, n=2, axis=1 ), axis=1 ) )
-    self.S = diag( 1/sqrt( diag( self.M ) ) )
+    self.y0 = jnp.mean( y, 1 )
+    self.M = jnp.diag( jnp.std( jnp.diff( y, n=2, axis=1 ), axis=1 ) )
+    self.S = jnp.diag( 1/jnp.sqrt( jnp.diag( self.M ) ) )
 
   def __call__( self, y ):
     """
@@ -96,7 +97,7 @@ class ZScore( object ):
     OUTPUT:
       zscores for y -- DxN
     """
-    return dot( self.S, y - self.y0.reshape( len( self.y0 ), 1 ) )
+    return jnp.dot( self.S, y - self.y0.reshape( len( self.y0 ), 1 ) )
 
 
 def _default_psf(x):
@@ -106,8 +107,8 @@ def _default_psf(x):
      aren't defined in the module top-level.
   """
   return signal.lfilter(
-    array([0.02008336556421, 0.04016673112842,0.02008336556421] ),
-    array([1.00000000000000,-1.56101807580072,0.64135153805756] ),
+    jnp.array([0.02008336556421, 0.04016673112842,0.02008336556421] ),
+    jnp.array([1.00000000000000,-1.56101807580072,0.64135153805756] ),
   x[0,:] )
 
 class Phaser( object ):
@@ -169,24 +170,25 @@ class Phaser( object ):
     z0, ido0 = Phaser.sliceN( zeta, p0 )
 
     # Compute phase offsets for proto-phases
-    ofs = exp(-1j * angle(mean(z0, axis = 1)).T)
+    ofs = jnp.exp(-1j * jnp.angle(jnp.mean(z0, axis = 1)).T)
 
     # series correction for each dimision using self.P_k
-    th = Phaser.angleUp( zeta * ofs[:,newaxis] )
+    th = Phaser.angleUp( zeta * ofs[:,jnp.newaxis] )
 
     # evaluable weights based on sample length
-    p = 1j * zeros( th.shape )
+    p = 1j * jnp.zeros( th.shape )
     for k in range( th.shape[0] ):
-      p[k,:] = self.P_k[k].val( th[k,:] ).T + th[k,:]
+      val = self.P_k[k].val( th[k,:] ).T + th[k,:]
+      p = p.at[k,:].set(val.flatten())
 
-    rho = mean( abs( zeta ), 1 ).reshape(( zeta.shape[0], 1 ))
+    rho = jnp.mean( jnp.abs( zeta ), 1 ).reshape(( zeta.shape[0], 1 ))
     # compute phase projected onto first principal components using self.prj
-    ph = Phaser.angleUp( dot( self.prj.T, vstack( [cos( p ) * rho, sin( p ) * rho] ) ))
+    ph = Phaser.angleUp( jnp.dot( self.prj.T, jnp.vstack( [jnp.cos( p ) * rho, jnp.sin( p ) * rho] ) ))
 
     # return series correction of combined phase using self.P
-    phi = real( ph + self.P.val( ph ).T )
-    pOfs2 = (p0[ido0+1] * exp(1j * phi.T[ido0+1]) - p0[ido0] * exp(1j * phi.T[ido0] )) / (p0[ido0+1] - p0[ido0])
-    return phi - angle(sum(pOfs2))
+    phi = jnp.real( ph + self.P.val( ph ).T )
+    pOfs2 = (p0[ido0+1] * jnp.exp(1j * phi.T[ido0+1]) - p0[ido0] * jnp.exp(1j * phi.T[ido0] )) / (p0[ido0+1] - p0[ido0])
+    return phi - jnp.angle(jnp.sum(pOfs2))
 
   def phaserTrain( self, y, C = None, ordP = None ):
     """
@@ -197,7 +199,7 @@ class Phaser( object ):
     """
 
     # if given one sample -> treat it as an ensemble with one element
-    if y.__class__ is ndarray:
+    if y.__class__ is jnp.ndarray:
       y = [y]
     # Copy the list container
     y = [yi for yi in y]
@@ -207,13 +209,13 @@ class Phaser( object ):
     D = y[0].shape[0]
 
     # train ZScore object based on the entire ensemble
-    self.sc = ZScore( hstack( y ), C )
+    self.sc = ZScore( jnp.hstack( y ), C )
 
     # initializing proto phase variable
     zetas = []
-    cycl = zeros( len( y ))
-    svm = 1j*zeros( (D, len( y )) )
-    svv = zeros( (D, len( y )) )
+    cycl = jnp.zeros( len( y ))
+    svm = 1j*jnp.zeros( (D, len( y )) )
+    svv = jnp.zeros( (D, len( y )) )
 
     # compute protophases for each sample in the ensemble
     for k in range( len( y ) ):
@@ -223,7 +225,8 @@ class Phaser( object ):
       # print(f"Zeta 1: {zetas[k]}")
 
       # trim beginning and end cycles, and check for cycle freq and quantity
-      cycl[k], zetas[k], y[k] = Phaser.trimCycle( zetas[k], y[k] )
+      cycl = cycl.at[k].set(Phaser.trimCycle( zetas[k], y[k] )[0])
+      zetas[k], y[k] = Phaser.trimCycle( zetas[k], y[k] )[1:]
       # Computing the Poincare section
       sk = self.psf( y[k] )
       # print(f"sk: {sk}")
@@ -231,28 +234,28 @@ class Phaser( object ):
       if idx.shape[-1] == 0:
         raise Exception( 'newPhaser:emptySection', 'Poincare section is empty -- bailing out' )
 
-      svm[:,k] = mean( sv, 1 )
-      svv[:,k] = var( sv, 1 ) * sv.shape[1] / (sv.shape[1] - 1)
+      svm = svm.at[:,k].set(jnp.mean( sv, 1 ))
+      svv = svv.at[:,k].set(jnp.var( sv, 1 ) * sv.shape[1] / (sv.shape[1] - 1))
       # print(sv.shape)
-    # print(sum(np.isnan(svm)), sum(np.isnan(svv)))
+    # print(sum(jnp.isnan(svm)), sum(jnp.isnan(svv)))
 
     # computing phase offset based on psecfunc
     self.mangle, ofs = Phaser.computeOffset( svm, svv )
 
     # correcting phase offset for proto phase and compute weights
-    wgt = zeros( len( y ) )
-    rho_i = zeros(( len( y ), y[0].shape[0] ))
+    wgt = jnp.zeros( len( y ) )
+    rho_i = jnp.zeros(( len( y ), y[0].shape[0] ))
     for k in range( len( y ) ):
-      zetas[k] = self.mangle * exp( -1j * ofs[k] ) * zetas[k]
-      wgt[k] = zetas[k].shape[0]
-      rho_i[k,:] = mean( abs( zetas[k] ), 1 )
+      zetas[k] = self.mangle * jnp.exp( -1j * ofs[k] ) * zetas[k]
+      wgt = wgt.at[k].set(zetas[k].shape[0])
+      rho_i = rho_i.at[k,:].set(jnp.mean( jnp.abs( zetas[k] ), 1 ))
 
     # compute normalized weight for each dimension using weights from all samples
     wgt = wgt.reshape(( 1, len( y )))
-    rho = ( dot( wgt, rho_i ) / sum( wgt ) ).T
+    rho = ( jnp.dot( wgt, rho_i ) / jnp.sum( wgt ) ).T
     # if ordP is None -> use high enough order to reach Nyquist/2
     if ordP is None:
-      ordP = ceil( max( cycl ) / 4 )
+      ordP = jnp.ceil( jnp.max( cycl ) / 4 )
 
     # correct protophase using seriesCorrection
     self.P_k = Phaser.seriesCorrection( zetas, ordP )
@@ -264,26 +267,28 @@ class Phaser( object ):
       # compute protophase angle
       th = Phaser.angleUp( zetas[k] )
 
-      phi_k = 1j * ones( th.shape )
+      phi_k = 1j * jnp.ones( th.shape )
 
       # loop over all dimensions
       for ki in range( th.shape[0] ):
         # compute corrected phase based on protophase
-        phi_k[ki,:] = self.P_k[ki].val( th[ki,:] ).T + th[ki,:]
+        val = self.P_k[ki].val( th[ki,:] ).T + th[ki,:]
+        
+        phi_k = phi_k.at[ki,:].set(val.flatten())
 
       # computer vectorized phase
-      q.append( vstack( [cos( phi_k ) * rho, sin( phi_k ) * rho] ) )
+      q.append( jnp.vstack( [jnp.cos( phi_k ) * rho, jnp.sin( phi_k ) * rho] ) )
 
     # project phase vectors using first two principal components
-    W = hstack( q[:] )
-    W = W - mean( W, 1 )[:,newaxis]
-    pc = svd( W, False )[0]
-    self.prj = reshape( pc[:,0] + 1j * pc[:,1], ( pc.shape[0], 1 ) )
+    W = jnp.hstack( q[:] )
+    W = W - jnp.mean( W, 1 )[:,jnp.newaxis]
+    pc = jnp.linalg.svd( W, full_matrices=False )[0]
+    self.prj = jnp.reshape( pc[:,0] + 1j * pc[:,1], ( pc.shape[0], 1 ) )
 
     # Series correction of combined phase
     qz = []
     for k in range( len( q ) ):
-      qz.append( dot( self.prj.T, q[k] ) )
+      qz.append( jnp.dot( self.prj.T, q[k] ) )
 
     # store object members for the phase estimator
     self.P = Phaser.seriesCorrection( qz, ordP )[0]
@@ -292,24 +297,24 @@ class Phaser( object ):
     """
     """
     # convert variances into weights
-    svv = svv / sum( svv, 1 ).reshape( svv.shape[0], 1 )
+    svv = svv / jnp.sum( svv, 1 ).reshape( svv.shape[0], 1 )
 
     # compute variance weighted average of phasors on cross section to give the phase offset of each protophase
-    mangle = sum( svm * svv, 1)
-    if any( abs( mangle ) ) < .1:
-      b = np.where( abs( mangle ) < .1 )
+    mangle = jnp.sum( svm * svv, 1)
+    if jnp.any( jnp.abs( mangle ) < .1 ):
+      b = jnp.where( jnp.abs( mangle ) < .1 )
       raise Exception( 'computeOffset:badmeasureOfs', len( b ) + ' measuremt(s), including ' + b[0] + ' are too noisy on Poincare section' )
 
     # compute phase offsets for trials
-    mangle = conj( mangle ) / abs( mangle )
+    mangle = jnp.conj( mangle ) / jnp.abs( mangle )
     mangle = mangle.reshape(( len( mangle ), 1))
     svm = mangle * svm
-    ofs = mean( svm, 0 )
-    if any( abs( ofs ) < .1 ):
-      b = np.where( abs( ofs ) < .1 )
+    ofs = jnp.mean( svm, 0 )
+    if jnp.any( jnp.abs( ofs ) < .1 ):
+      b = jnp.where( jnp.abs( ofs ) < .1 )
       raise Exception( f'computeOffset:badTrialOfs {len( b )} trial(s), including {b[0]} are too noisy on Poincare section' )
 
-    return mangle, angle( ofs )
+    return mangle, jnp.angle( ofs )
 
   computeOffset = staticmethod( computeOffset )
 
@@ -330,15 +335,11 @@ class Phaser( object ):
       raise Exception( 'sliceN:mismatch', 'Slice series must have matching columns with data' )
     #print(s)
     #print(s.shape)
-    idx = np.where(( s[1:] > 0 ) & ( s[0:-1] <= 0 )) #changed here
-    #print(idx[0])
-    #print(x.shape[1])
-    indices = np.where(idx[0] < x.shape[1])
-    #print(indices[0])
-    #print(type(indices[0]))
-    #ind = np.array(indices[0].int)
-    #idx = idx[[indices[0]]] #changed here
-    idx = np.take(idx, indices[0])
+    idx = jnp.where(( s[1:] > 0 ) & ( s[0:-1] <= 0 )) #changed here
+
+    indices = jnp.where(idx[0] < x.shape[1])[0]
+
+    idx = jnp.take(idx[0], indices)
     #print(idx)
 
 
@@ -346,16 +347,16 @@ class Phaser( object ):
     
 
     if h != None:
-      idx = idx( abs( s[idx] ) < h & abs( s[idx+1] ) < h );
+      idx = idx( jnp.abs( s[idx] ) < h & jnp.abs( s[idx+1] ) < h );
 
     N = x.shape[0]
 
     if len( idx ) == 0:
-      return zeros(( N, 0 )), idx
+      return jnp.zeros(( N, 0 )), idx
 
-    wBfr = abs( s[idx] )
+    wBfr = jnp.abs( s[idx] )
     wBfr = wBfr.reshape((1, len( wBfr )))
-    wAfr = abs( s[idx+1] )
+    wAfr = jnp.abs( s[idx+1] )
     wAfr = wAfr.reshape((1, len( wAfr )))
     slc = ( x[:,idx]*wAfr + x[:,idx+1]*wBfr ) / ( wBfr + wAfr )
 
@@ -372,12 +373,11 @@ class Phaser( object ):
       returns DxN phase angle of zeta
     """
     # unwind angles
-    th = unwrap( angle ( zeta ) )
+    th = jnp.unwrap( jnp.angle ( zeta ) )
     # print(f"Zeta (angle up): {zeta}, \n th:{th}")
     # reverse decreasing sequences
     bad = th[:,0] > th[:,-1]
-    if any( bad ):
-      th[bad,:] = -th[bad,:]
+    th = jnp.where(bad[:,None], -th, th)
     return th
 
   angleUp = staticmethod( angleUp )
@@ -391,20 +391,20 @@ class Phaser( object ):
 
     # estimate nCyc in each dimension
     
-    nCyc = abs( ph[:,-1] - ph[:,0] ) / 2 / pi
+    nCyc = jnp.abs( ph[:,-1] - ph[:,0] ) / 2 / jnp.pi
     # print(f"nCycles: {nCyc}")
-    cycl = int(ceil( zeta.shape[1] / max( nCyc ) ))
+    cycl = jnp.ceil( zeta.shape[1] / jnp.max( nCyc ) ).astype(int)
 
     # if nCyc < 7 -> warning
     # elif range(nCyc) > 2 -> warning
     # else truncate beginning and ending cycles
-    if any( nCyc < 7 ):
-      warnings.warn( "PhaserForSample:tooShort" )
-    elif max( nCyc ) - min( nCyc ) > 2:
-      warnings.warn( "PhaserForSample:nCycMismatch" )
-    else:
-      zeta = zeta[:,cycl:-cycl]
-      y = y[:,cycl:-cycl]
+    # # if jnp.any( nCyc < 7 ):
+    # #   warnings.warn( "PhaserForSample:tooShort" )
+    # # elif jnp.max( nCyc ) - jnp.min( nCyc ) > 2:
+    # #   warnings.warn( "PhaserForSample:nCycMismatch" )
+    # else:
+    zeta = zeta[:,cycl:-cycl]
+    y = y[:,cycl:-cycl]
 
     return cycl, zeta, y
 
@@ -424,7 +424,7 @@ class Phaser( object ):
     proto = []
 
     # loop over all samples of the ensemble
-    wgt = zeros( len( zetas ) )
+    wgt = jnp.zeros( len( zetas ) )
     for k in range( len( zetas ) ):
       proto.append([])
       # compute protophase angle (theta)
@@ -433,11 +433,11 @@ class Phaser( object ):
       theta = Phaser.angleUp( zeta )
 
       # generate time variable
-      t = linspace( 0, 1, N )
+      t = jnp.linspace( 0, 1, N )
       # compute d_theta
-      dTheta = diff( theta, 1 )
+      dTheta = jnp.diff( theta, 1 )
       # compute d_t
-      dt = diff( t )
+      dt = jnp.diff( t )
       # mid-sampling of protophase angle
       th = ( theta[:,1:] + theta[:,:-1] ) / 2.0
 
@@ -447,23 +447,23 @@ class Phaser( object ):
         # normalize Fourier coefficients to a mean of 1
         fdThdt = FourierSeries().fit( ordP * 2, th[ki,:].reshape(( 1, th.shape[1])), dTheta[ki,:].reshape(( 1, dTheta.shape[1])) / dt )
         fdThdt.coef = fdThdt.coef / fdThdt.m
-        fdThdt.m = array([1])
+        fdThdt.m = jnp.array([1])
 
         # evaluate Fourier series for (d_t/d_theta)(theta) based on Fourier
         # approx of (d_theta/d_t)
         # normalize Fourier coefficients to a mean of 1
         fdtdTh = FourierSeries().fit( ordP, th[ki,:].reshape(( 1, th.shape[1])), 1 / fdThdt.val( th[ki,:].reshape(( 1, th.shape[1] )) ).T )
         fdtdTh.coef = fdtdTh.coef / fdtdTh.m
-        fdtdTh.m = array([1])
+        fdtdTh.m = jnp.array([1])
 
         # evaluate corrected phsae phi(theta) series as symbolic integration of
         # (d_t/d_theta), this is off by a constant
         proto[k].append(fdtdTh.integrate())
 
       # compute sample weight based on sample length
-      wgt[k] = zeta.shape[0]
+      wgt = wgt.at[k].set(zeta.shape[0])
 
-    wgt = wgt / sum( wgt )
+    wgt = wgt / jnp.sum( wgt )
 
     # return phase estimation as weighted average of phase estimation of all samples
     proto_k = []
@@ -480,13 +480,13 @@ def test_sincos():
 
   Demo courtesy of Jimmy Sastra, U. Penn 2011
   """
-  from numpy import sin,cos,pi,array,linspace,cumsum,asarray,dot,ones
+  from jax.numpy import sin,cos,pi,array,linspace,cumsum,asarray,dot,ones
   from pylab import plot, legend, axis, show, randint, randn, std,lstsq
   # create separate trials and store times and data
   dats=[]
   t0 = []
   period = 55 # i
-  phaseNoise = 0.5/sqrt(period)
+  phaseNoise = 0.5/jnp.sqrt(period)
   snr = 20
   N = 10
   print(N,"trials with:")
@@ -499,7 +499,7 @@ def test_sincos():
     raw = asarray([sin(t),cos(t)]) # signal
     raw = raw + randn(*raw.shape)/snr # SNR=20 noise
     t0.append(t)
-    dats.append( raw - raw.mean(axis=1)[:,newaxis] )
+    dats.append( raw - raw.mean(axis=1)[:,jnp.newaxis] )
     print(l,)
   print("]")
   # use points where sin=cos as poincare section
