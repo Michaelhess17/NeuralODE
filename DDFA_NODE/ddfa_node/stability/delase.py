@@ -1,9 +1,9 @@
-from delase import DeLASE, dmd
+from DDFA_NODE.ddfa_node.stability.delase import DeLASE, dmd
 from delase.metrics import aic, mase, mse, r2_score
 from tqdm.auto import tqdm
 import numpy as np
 import torch
-from .utils_data_preparation import change_trial_length
+from ..utils.data_preparation import change_trial_length
 
 
 def get_aics(all_data, matrix_sizes, ranks, dt=0.002,

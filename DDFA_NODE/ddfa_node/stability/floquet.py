@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.decomposition import PCA
-from . import phaser
+from .. import phaser
 from scipy.signal import find_peaks
 from scipy.stats import sem
 from sklearn.linear_model import LinearRegression
