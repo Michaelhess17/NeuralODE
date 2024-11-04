@@ -433,6 +433,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/36/94/1726f0a89ff40760ec2c789b4d5aba6fa283082208f23a707f3c01140f92/optimistix-0.0.9-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/03/98/eb27cc78ad3af8e302c9d8ff4977f5026676e130d28dd7578132a457170c/toolz-1.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9a/bb/d43e5c75054e53efce310e79d63df0ac3f25e34c926be5dffb7d283fb2a8/typeguard-2.13.3-py3-none-any.whl
+      - pypi: ./DDFA_NODE
+      - pypi: ../delase
       osx-64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/aiohappyeyeballs-2.4.3-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.10.5-py312hb553811_1.conda
@@ -758,6 +760,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/dd/89/7e91e9ecf3bf1e4d0cdb7ffa3fc61e422968a9df0c38d66f6b564a8be336/optax-0.2.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/03/98/eb27cc78ad3af8e302c9d8ff4977f5026676e130d28dd7578132a457170c/toolz-1.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9a/bb/d43e5c75054e53efce310e79d63df0ac3f25e34c926be5dffb7d283fb2a8/typeguard-2.13.3-py3-none-any.whl
+      - pypi: ./DDFA_NODE
+      - pypi: ../delase
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/aiohappyeyeballs-2.4.3-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/aiohttp-3.10.5-py312h024a12e_1.conda
@@ -1081,6 +1085,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/dd/89/7e91e9ecf3bf1e4d0cdb7ffa3fc61e422968a9df0c38d66f6b564a8be336/optax-0.2.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/03/98/eb27cc78ad3af8e302c9d8ff4977f5026676e130d28dd7578132a457170c/toolz-1.0.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9a/bb/d43e5c75054e53efce310e79d63df0ac3f25e34c926be5dffb7d283fb2a8/typeguard-2.13.3-py3-none-any.whl
+      - pypi: ./DDFA_NODE
+      - pypi: ../delase
 packages:
 - kind: conda
   name: _libgcc_mutex
@@ -3410,6 +3416,12 @@ packages:
   purls: []
   size: 618596
   timestamp: 1640112124844
+- kind: pypi
+  name: ddfa-node
+  version: 0.1.0
+  path: ./DDFA_NODE
+  sha256: d10440a7991001ca1ba540017dc08b5a4a4944bf50a147cb46bdcfe17ae64b7c
+  editable: true
 - kind: conda
   name: debugpy
   version: 1.8.7
@@ -3503,6 +3515,12 @@ packages:
   - pkg:pypi/defusedxml?source=hash-mapping
   size: 24062
   timestamp: 1615232388757
+- kind: pypi
+  name: delase
+  version: '1.0'
+  path: ../delase
+  sha256: 69895c84e42228ea4f9de7f806c258ab5f30f778f911c39b77e6b6ba4c5d7bed
+  editable: true
 - kind: pypi
   name: diffrax
   version: 0.4.0

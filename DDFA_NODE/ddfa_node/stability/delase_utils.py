@@ -1,4 +1,4 @@
-from DDFA_NODE.ddfa_node.stability.delase import DeLASE, dmd
+from delase import DeLASE, dmd
 from delase.metrics import aic, mase, mse, r2_score
 from tqdm.auto import tqdm
 import numpy as np

@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.decomposition import PCA
-from .. import phaser
+from ..utils import phaser
 from scipy.signal import find_peaks
 from scipy.stats import sem
 from sklearn.linear_model import LinearRegression
@@ -446,3 +446,15 @@ def backtrace_multipliers_pct(pcts, eigVals, Ns, subject=0, nPoints=5, phase=50,
             ax.set_title(plot_title)
         plt.tight_layout()
     return fit.intercept, fit.intercept_stderr
+
+def backtrace_multipliers_all(allEigenvals, Ns, splits, nPoints=4):
+    n_subjects, _, _, _, n_phases, _, n_eigs = allEigenvals.shape
+    estimates = np.zeros((n_subjects, n_phases, n_eigs))
+    estimates_stderr = np.zeros((n_subjects, n_phases, n_eigs))
+    for subject in range(n_subjects):
+        for phase in range(n_phases):
+            for eig in range(n_eigs):
+                est = backtrace_multipliers(splits, allEigenvals, Ns, subject=subject, nPoints=nPoints, phase=phase, eig=eig, plot=False, plot_title=None, ax=None)
+                estimates[subject, phase, eig] = est[0]
+                estimates_stderr[subject, phase, eig] = est[1]
+    return estimates, estimates_stderr
