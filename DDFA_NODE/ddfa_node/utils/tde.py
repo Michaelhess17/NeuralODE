@@ -327,18 +327,18 @@ def get_embedding_dim(data, tau, maxDim, plot, threshold):
     dims = np.array([[FNN_n(data[x, :, y], tau, maxDim=10, plotting=plot, Rtol=15, Atol=2, Stol=0.9, threshold=threshold, method="cao")[1] for x in range(trials)] for y in range(features)])
     return np.nanmedian(dims)
 
-def takens_embedding(data, tau, k):
-    data_TE = np.zeros((data.shape[0], data.shape[1]-tau*k, data.shape[2]), dtype = object)
+# def takens_embedding(data, tau, k):
+#     data_TE = np.zeros((data.shape[0], data.shape[1]-tau*k, data.shape[2]), dtype = object)
     
-    for i in range(data.shape[0]):
-        for j in range(data.shape[2]):
-            for t in range(data.shape[1]-tau*k):
-                data_TE[i,t,j] = data[i, t:t+tau*k+1, j][::tau][::-1]
+#     for i in range(data.shape[0]):
+#         for j in range(data.shape[2]):
+#             for t in range(data.shape[1]-tau*k):
+#                 data_TE[i,t,j] = data[i, t:t+tau*k+1, j][::tau][::-1]
                 
-    data_TE = np.array(data_TE.tolist())
-    data_TE = data_TE.reshape(data_TE.shape[0],data_TE.shape[1], data.shape[2]*(k+1))
+#     data_TE = np.array(data_TE.tolist())
+#     data_TE = data_TE.reshape(data_TE.shape[0],data_TE.shape[1], data.shape[2]*(k+1))
     
-    return data_TE
+#     return data_TE
 
 
 def embed_data(data, e_time_threshold=1/np.e, maxlags=100, max_dim=12, nn_threshold=10, plot=False):
@@ -387,3 +387,34 @@ def convolutional_embedding(data, base, max_power):
     
     return embedded_data
     
+import jax
+import jax.numpy as jnp
+
+
+def takens_embedding(data, tau: int, dimension: int):
+    """
+    Apply Takens embedding to multiple trials of multivariate time series data.
+    
+    Args:
+        data: Array of shape (trials, timesteps, features)
+        tau: Integer time delay (static)
+        dimension: Integer embedding dimension (static)
+    
+    Returns:
+        Embedded data of shape (trials, timesteps - (dimension-1)*tau, features*dimension)
+    """
+    trials, timesteps, features = data.shape
+    valid_timesteps = timesteps - (dimension-1) * tau
+    
+    def get_delayed_slice(d):
+        start = d * tau
+        return jax.lax.dynamic_slice_in_dim(data, start, valid_timesteps, axis=1)
+    
+    # Get all delayed versions using vmap over the dimension
+    delayed_versions = jax.vmap(get_delayed_slice)(jnp.arange(dimension))
+    
+    # Reshape to get the desired output format
+    # delayed_versions shape: (dimension, trials, valid_timesteps, features)
+    return jnp.transpose(delayed_versions, (1, 2, 0, 3)).reshape(trials, valid_timesteps, dimension * features)
+
+takens_embedding = jax.jit(takens_embedding, static_argnums=[1, 2])
