@@ -15,22 +15,39 @@ from jax.experimental.host_callback import call
 import copy
 
 def change_trial_length(data, timesteps_per_subsample=100, skip=1, get_subject_ids=False):
+    """Resamples data into fixed length trials using dynamic slicing.
+    Only data argument is traced, others are static."""
     num_subjects, num_time_steps, num_features = data.shape
     num_subsamples = (num_time_steps - timesteps_per_subsample) // skip + 1
     subsamples = jnp.zeros((num_subjects*num_subsamples, timesteps_per_subsample, num_features))
     subject_ids = jnp.zeros((num_subjects*num_subsamples,))
-    subject = 0
-    for idx, subject_data in enumerate(data):
-        for jdx in range(num_subsamples):
-            start_index = jdx * skip
-            end_index = start_index + timesteps_per_subsample
-            subsample = subject_data[start_index:end_index, :]
-            subsamples = subsamples.at[idx*num_subsamples+jdx].set(subsample)
-            subject_ids = subject_ids.at[idx*num_subsamples+jdx].set(subject)
-        subject += 1
+
+    def process_subject(i, carry):
+        subsamples, subject_ids = carry
+        
+        def process_subsample(j, carry):
+            subsamples, subject_ids = carry
+            start_index = j * skip
+            subsample = jax.lax.dynamic_slice(
+                data[i], 
+                (start_index, 0), 
+                (timesteps_per_subsample, num_features)
+            )
+            idx = i*num_subsamples + j
+            subsamples = subsamples.at[idx].set(subsample)
+            subject_ids = subject_ids.at[idx].set(i)
+            return (subsamples, subject_ids)
+            
+        return jax.lax.fori_loop(0, num_subsamples, process_subsample, (subsamples, subject_ids))
+
+    subsamples, subject_ids = jax.lax.fori_loop(
+        0, num_subjects, process_subject, (subsamples, subject_ids)
+    )
+
     if get_subject_ids:
         return subsamples, subject_ids
     return subsamples
+change_trial_length = jax.jit(change_trial_length, static_argnums=[1, 2, 3])
 
 def dataloader(arrays, batch_size, *, key):
     dataset_size = arrays[0].shape[0]
