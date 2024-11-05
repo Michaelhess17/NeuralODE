@@ -2,6 +2,7 @@ import time
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import jax.tree_util as jtu
 import jax.nn as jnn
 import diffrax
 import equinox as eqx
@@ -100,8 +101,9 @@ class NeuralODE(eqx.Module):
     ode_to_data: eqx.nn.MLP
     use_recurrence: bool
     linear: bool
+    padding_layer: eqx.nn.MLP  # New layer for padding input
 
-    def __init__(self, data_size, width_size, hidden_size, ode_size, depth, *, key, use_recurrence=True, linear=False, **kwargs):
+    def __init__(self, data_size, width_size, hidden_size, ode_size, depth, augment_dims, *, key, use_recurrence=True, linear=False, **kwargs):
         super().__init__(**kwargs)
         self.use_recurrence = use_recurrence
         self.linear = linear
@@ -109,28 +111,50 @@ class NeuralODE(eqx.Module):
         if use_recurrence:
             self.cell = eqx.nn.GRUCell(data_size, hidden_size, key=rec_key)
         else:
-            ode_size = data_size
+            ode_size = data_size + augment_dims
             self.cell = None
+        
+        # Create a padding layer if augment_dims > 0
+        if augment_dims > 0:
+            self.padding_layer = eqx.nn.MLP(
+                in_size=data_size,
+                out_size=data_size + augment_dims,
+                width_size=width_size,
+                depth=1,  # Single layer for padding
+                activation=jnn.tanh,
+                key=dec_key,
+            )
+        else:
+            self.padding_layer = None  # No padding layer if augment_dims is 0
+
         if linear:
             self.func = LinearFunc(ode_size, key=func_key)
         else:
             self.func = Func(ode_size, width_size, depth, key=func_key)
-        self.hidden_to_ode = eqx.nn.MLP(
-            in_size=hidden_size,
-            out_size=ode_size,
-            width_size=width_size,
-            depth=2,
-            activation=jnn.tanh,
-            key=dec_key,
-        )
-        self.ode_to_data = eqx.nn.MLP(
-            in_size=ode_size,
-            out_size=data_size,
-            width_size=width_size,
-            depth=2,
-            activation=lambda x: x,
-            key=dec_key,
-        )
+
+        if use_recurrence or augment_dims > 0:
+            self.hidden_to_ode = eqx.nn.MLP(
+                in_size=hidden_size,
+                out_size=ode_size,
+                width_size=width_size,
+                depth=2,
+                activation=jnn.tanh,
+                key=dec_key,
+            )
+        else:
+            self.hidden_to_ode = None
+        
+        if augment_dims > 0:
+            self.ode_to_data = eqx.nn.MLP(
+                in_size=ode_size,
+                out_size=data_size,
+                width_size=width_size,
+                depth=2,
+                activation=lambda x: x,
+                key=dec_key,
+            )
+        else:
+            self.ode_to_data = None
 
     def __call__(self, ts, yi):
         if self.use_recurrence:
@@ -140,6 +164,10 @@ class NeuralODE(eqx.Module):
             y0 = self.hidden_to_ode(hidden)
         else:
             y0 = yi[0, :]
+            # Pad the input if augment_dims > 0
+            if self.padding_layer is not None:
+                y0 = self.padding_layer(y0)
+
         solution = diffrax.diffeqsolve(
             diffrax.ODETerm(self.func),
             diffrax.Tsit5(),
@@ -151,19 +179,19 @@ class NeuralODE(eqx.Module):
             saveat=diffrax.SaveAt(ts=ts),
         )
         ys = solution.ys
-        if self.use_recurrence:
+        if self.use_recurrence or self.padding_layer is not None:
             out = jax.vmap(self.ode_to_data)(ys)
         else:
             out = ys
         return out
 
-def train_NODE(data, timesteps_per_trial=500, t1=5.0, width_size=16, hidden_size=256, ode_size=128, depth=2, batch_size=256, seed=55, lr_strategy=(3e-3, 3e-3), steps_strategy=(500, 500), length_strategy=(0.1, 1), plot=True, print_every=100, seeding_strategy=(0.1, 0.1), skip_strategy=(50, 100), use_recurrence=True, linear=False, model=None, plot_fn=None, *, k):
+def train_NODE(data, timesteps_per_trial=500, t1=5.0, width_size=16, hidden_size=256, ode_size=128, depth=2, batch_size=256, seed=55, augment_dims=0, lr_strategy=(3e-3, 3e-3), steps_strategy=(500, 500), length_strategy=(0.1, 1), plot=True, print_every=100, seeding_strategy=(0.1, 0.1), skip_strategy=(50, 100), use_recurrence=True, linear=False, model=None, plot_fn=None, *, k):
     key = jr.PRNGKey(seed)
     data_key, model_key, loader_key = jr.split(key, 3)
     ts = jnp.linspace(0.0, t1, timesteps_per_trial)
     features = data[0].shape[-1]
     if model is None:
-        model = NeuralODE(features, width_size, hidden_size, ode_size, depth, key=model_key, use_recurrence=use_recurrence, linear=linear)
+        model = NeuralODE(features, width_size, hidden_size, ode_size, depth, augment_dims, key=model_key, use_recurrence=use_recurrence, linear=linear)
     @eqx.filter_value_and_grad
     def grad_loss(model, ti, yi, seeding_steps):
         y_pred = jax.vmap(model, in_axes=(None, 0))(ti, yi[:, :seeding_steps, :])
@@ -211,9 +239,9 @@ def train_NODE(data, timesteps_per_trial=500, t1=5.0, width_size=16, hidden_size
                     if plot:
                         if plot_fn is None:
                             ax = plt.subplot(111, projection="3d")
-                            ax.scatter(_ys[0, :, 0], _ys[0, :, 1], _ys[0, :, 2], c="dodgerblue", label="Data")
+                            ax.scatter(_ys[0, :, 0], _ys[0, :, k], _ys[0, :, 2*k], c="dodgerblue", label="Data")
                             model_y = model(_ts, _ys[0, :seeding_steps])
-                            ax.scatter(model_y[:, 0], model_y[:, 1], model_y[:, 2], c="crimson", label="Model")
+                            ax.scatter(model_y[:, 0], model_y[:, k], model_y[:, 2*k], c="crimson", label="Model")
                             ax.legend()
                             plt.tight_layout()
                             plt.show()
@@ -225,3 +253,22 @@ def train_NODE(data, timesteps_per_trial=500, t1=5.0, width_size=16, hidden_size
         return ts, ys, best_model
     print(f"Training finished. Returning best model with loss: {best_loss}")
     return ts, ys, best_model
+
+def get_parameters(model):
+    params = jtu.tree_leaves(eqx.filter(model, eqx.is_array))
+    return jnp.sum(jnp.array([x.size for x in params]))
+
+def print_parameter_count(model):
+    # Get all trainable parameters
+    params = eqx.filter(model, eqx.is_array)
+    
+    total_params = 0
+    # Iterate through the parameter tree
+    for idx, param in enumerate(jtu.tree_flatten(params)[0]):
+        param_count = jnp.size(param)
+        # Create a string representation of the path
+        path_str = 'Layer ' + '.'.join(str(idx))
+        print(f"{path_str}: {param_count:,} parameters")
+        total_params += param_count
+    
+    print(f"\nTotal trainable parameters: {total_params:,}")
