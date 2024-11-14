@@ -141,10 +141,6 @@ class NeuralODE(eqx.Module):
                 activation=jnn.tanh,
                 key=dec_key,
             )
-        else:
-            self.hidden_to_ode = None
-        
-        if augment_dims > 0:
             self.ode_to_data = eqx.nn.MLP(
                 in_size=ode_size,
                 out_size=data_size,
@@ -154,6 +150,7 @@ class NeuralODE(eqx.Module):
                 key=dec_key,
             )
         else:
+            self.hidden_to_ode = None
             self.ode_to_data = None
 
     def __call__(self, ts, yi):
@@ -221,6 +218,8 @@ def train_NODE(data, timesteps_per_trial=500, t1=5.0, width_size=16, hidden_size
                 if len(y.shape) > 1:
                     new_ys.append(y)
             ys = jnp.concatenate(new_ys).astype(float)
+            # shuffle the data
+            ys = jax.random.permutation(loader_key, ys)
             print(ys.shape)
             trials, timesteps, features = ys.shape
             _ts = ts[: int(timesteps)]

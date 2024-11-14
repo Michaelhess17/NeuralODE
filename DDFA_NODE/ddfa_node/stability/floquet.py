@@ -194,7 +194,7 @@ def backtrace_multipliers(splits, eigVals, Ns, subject=0, nPoints=5, phase=50, e
     """ The inputs pcts, eigVals, and Ns should be those used or outputted from the sample_floquet_multipliers function """ 
 
     splits=splits[:nPoints]
-    b = np.absolute(eigVals[subject, :nPoints, :, :, phase, :, eig]).squeeze()
+    b = np.real(eigVals[subject, :nPoints, :, :, phase, :, eig]).squeeze()
     if b.max() == np.nan and b.min() == np.nan:
         return np.nan, np.nan
     mean = [] #np.mean(b_nonan, axis=1)
