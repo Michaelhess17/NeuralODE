@@ -197,3 +197,4 @@ torchsde/
 *.egg-info
 nohup.out
 outputs
+figures/

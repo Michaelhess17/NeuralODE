@@ -10,7 +10,7 @@ JOBS_PER_GPU=4
 N=$((NUM_GPUS * JOBS_PER_GPU))
 
 # Create a list of subject IDs (0 to 19)
-subjects=($(seq 5 14))
+subjects=($(seq 0 29))
 
 # Function to run jobs in parallel
 run_parallel() {

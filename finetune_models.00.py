@@ -49,7 +49,7 @@ def finetune_model(model, data_tde, subject):
         batch_size=128,
         seed=6969,
         lr_strategy=(1e-4,),
-        steps_strategy=(1500, 30000, 25000),
+        steps_strategy=(3000, 30000, 25000),
         length_strategy=(1,),
         skip_strategy=(1,),
         seeding_strategy=(1/5,),
@@ -63,35 +63,46 @@ def finetune_model(model, data_tde, subject):
     eqx.tree_serialise_leaves(f"outputs/vdp_model_subject_{subject}.eqx", model)
 
 def main():
-    window_length = 50
-    polyorder = 5
-    data = jnp.load("/home/michael/Synology/Julia/data/VDP_SDEs.npy")[25:-20, ::2, :1]
-    feats = data.shape[-1]
-    n_trials = data.shape[0]
-    new_data = np.zeros((n_trials, data.shape[1], data.shape[2]))
-    for trial in range(n_trials):
-        new_data[trial, :, :feats] = savgol_filter(data[trial, :, :], window_length=window_length, polyorder=polyorder, axis=0)
-        # new_data[trial, :, feats:] = savgol_filter(data[trial, :, :], window_length=window_length, polyorder=polyorder, axis=0, deriv=1)
+    
+    window_length = 30
+    polyorder = 3
+    data = jnp.load("outputs/VDP_oscillators.npy")[:, :, ::3]
+    data = data.reshape(data.shape[0]*data.shape[1], data.shape[2], data.shape[3])
 
+
+    # Define the convolution function for a single time series
+    def convolve_1d(x):
+        return jnp.convolve(x, jnp.ones((window_length,))/window_length, mode='valid')
+
+    # Vectorize over features
+    convolve_features = vmap(convolve_1d, in_axes=1, out_axes=1)
+    # Vectorize over trials
+    convolve_trials = vmap(convolve_features, in_axes=0, out_axes=0)
+
+    # Apply convolution to all trials and features at once
+    new_data = convolve_trials(data)
     # Standardize the data
     new_data = (new_data - jnp.mean(new_data, axis=1)[:, None, :]) / jnp.std(new_data, axis=1)[:, None, :]
     data = new_data
-    τ = 32
-    k = 4
+    print(data.shape)
+    import numpy as np
+    skip = 300
+    _, k, τ = embed_data(np.array(data[:, skip:, :1]))
+
     data_tde = takens_embedding(data[:, :, :1], τ, k)
 
     # Initialize the model
-    model = NeuralODE(data_size=4, 
-                    width_size=128, 
-                    hidden_size=256, 
-                    ode_size=8, 
-                    depth=3, 
-                    augment_dims=0, 
-                    key=jax.random.PRNGKey(0))
+    model = NeuralODE(data_size=5,
+                      width_size=128, 
+                      hidden_size=256, 
+                      ode_size=8, 
+                      depth=3, 
+                      augment_dims=0, 
+                      key=jax.random.PRNGKey(0))
 
     # deserialize the model
     model = eqx.tree_deserialise_leaves("outputs/vdp_model.eqx", model)
-    subject_ids = jnp.repeat(jnp.arange(20), 5)[25:-20]
+    subject_ids = jnp.tile(jnp.arange(30), 10)
     parser = argparse.ArgumentParser()
     parser.add_argument("--subject", type=int, default=0)
     args = parser.parse_args()
