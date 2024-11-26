@@ -29,6 +29,7 @@ scikit-learn = "*"
 jupyter = "*"
 resample = ">=1.10.1,<2"
 numpy = ">=2.1.2,<3"
+pytest = ">=8.3.3,<9"
 
 [pypi-dependencies]
 jax = { version = "*", extras = ["cuda12"] }
