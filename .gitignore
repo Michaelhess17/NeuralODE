@@ -198,3 +198,4 @@ torchsde/
 nohup.out
 outputs
 figures/
+tmp.ipynb

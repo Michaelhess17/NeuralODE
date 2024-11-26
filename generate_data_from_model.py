@@ -11,7 +11,6 @@ from ddfa_node.networks.jax_utils import NeuralODE
 from ddfa_node.utils.tde import takens_embedding
 import jax
 from jax import vmap
-from scipy.signal import savgol_filter
 
 # window_length = 50
 # polyorder = 5
@@ -88,14 +87,15 @@ def diffusion(t, y, args):
 model = NeuralODE(data_size=5, 
                     width_size=128, 
                     hidden_size=256, 
-                    ode_size=8, 
-                    depth=3, 
+                    ode_size=6, 
+                    depth=2,
                     augment_dims=0, 
                     key=jax.random.PRNGKey(42))
-model = eqx.tree_deserialise_leaves(f"outputs/vdp_model.eqx", model)
+
+model = eqx.tree_deserialise_leaves("outputs/vdp_model.eqx", model)
 new_ts = jnp.linspace(0, 120, 12000)
-seeding_steps = 100
+seeding_steps = 75
 out = jax.vmap(solve_sde, in_axes=(None, None, 0, None))(model, new_ts, data_tde[:, 0:seeding_steps, :], diffusion)
 
-jnp.save(f"outputs/gen_vdp_data.npy", out)
+jnp.save("outputs/gen_vdp_data.npy", out)
 
