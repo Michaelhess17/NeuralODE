@@ -8,44 +8,29 @@ from diffrax import ODETerm, ControlTerm, MultiTerm, VirtualBrownianTree
 
 import equinox as eqx
 from ddfa_node.networks.jax_utils import NeuralODE
-from ddfa_node.utils.tde import takens_embedding
+from ddfa_node.utils.tde import takens_embedding, embed_data
+from ddfa_node.utils.data_preparation import convolve_trials
 import jax
 from jax import vmap
 
-# window_length = 50
-# polyorder = 5
-# data = jnp.load("/home/michael/Synology/Julia/data/VDP_SDEs.npy")[25:-20, ::2, :1]
-# feats = data.shape[-1]
-# n_trials = data.shape[0]
-# new_data = jnp.zeros((n_trials, data.shape[1], data.shape[2]))
-# for trial in range(n_trials):
-#     new_data = new_data.at[trial, :, :feats].set(savgol_filter(data[trial, :, :], window_length=window_length, polyorder=polyorder, axis=0))
-
-
 window_length = 30
-polyorder = 3
-data = jnp.load("outputs/VDP_oscillators.npy")[:, :, ::3]
+data = jnp.load("../outputs/VDP_oscillators.npy")[:, :, ::3]
 data = data.reshape(data.shape[0]*data.shape[1], data.shape[2], data.shape[3])
 
-
-# Define the convolution function for a single time series
-def convolve_1d(x):
-    return jnp.convolve(x, jnp.ones((window_length,))/window_length, mode='valid')
-
-# Vectorize over features
-convolve_features = vmap(convolve_1d, in_axes=1, out_axes=1)
-# Vectorize over trials
-convolve_trials = vmap(convolve_features, in_axes=0, out_axes=0)
-
-# Apply convolution to all trials and features at once
-new_data = convolve_trials(data)
-
+new_data = convolve_trials(data, window_length)
 # Standardize the data
 new_data = (new_data - jnp.mean(new_data, axis=1)[:, None, :]) / jnp.std(new_data, axis=1)[:, None, :]
-τ = 26
-k = 5
-data_tde = takens_embedding(new_data[:, :, :1], τ, k)
+data = new_data
+print(data.shape)
 
+
+import numpy as np
+skip = 300
+_, k, τ = embed_data(np.array(data[:, skip:, :1]))
+
+data_tde = takens_embedding(data[:, :, :1], τ, k)
+
+print("Embedded data shape: ", data_tde.shape)
 
 @eqx.filter_jit
 def solve_sde(model, new_ts, yi, diffusion):
@@ -65,10 +50,11 @@ def solve_sde(model, new_ts, yi, diffusion):
 
     solution = diffrax.diffeqsolve(
                 terms,
-                diffrax.Euler(),
+                diffrax.Kvaerno5(),
+                stepsize_controller=diffrax.PIDController(rtol=1e-4, atol=1e-6, error_order=1.5),
                 t0=t0,
                 t1=t1,
-                dt0=new_ts[1] - new_ts[0],
+                dt0=(new_ts[1] - new_ts[0]),
                 y0=y0,
                 saveat=diffrax.SaveAt(ts=new_ts),
                 max_steps=None,
@@ -80,8 +66,9 @@ def solve_sde(model, new_ts, yi, diffusion):
         out = ys
     return out
 
+@eqx.filter_jit
 def diffusion(t, y, args):
-    noise_std = 0.01
+    noise_std = 0.5
     return jr.normal(jr.PRNGKey(jnp.int32(t)), shape=y.shape) * noise_std
 
 model = NeuralODE(data_size=5, 
@@ -92,10 +79,10 @@ model = NeuralODE(data_size=5,
                     augment_dims=0, 
                     key=jax.random.PRNGKey(42))
 
-model = eqx.tree_deserialise_leaves("outputs/vdp_model.eqx", model)
-new_ts = jnp.linspace(0, 120, 12000)
-seeding_steps = 75
-out = jax.vmap(solve_sde, in_axes=(None, None, 0, None))(model, new_ts, data_tde[:, 0:seeding_steps, :], diffusion)
+model = eqx.tree_deserialise_leaves("../outputs/vdp_model.eqx", model)
+new_ts = jnp.linspace(0, 5, 500)
+seeding_steps = 125
+out = jax.vmap(solve_sde, in_axes=(None, None, 0, None))(model, new_ts, data_tde[:, 500:500+seeding_steps, :], diffusion)
 
-jnp.save("outputs/gen_vdp_data.npy", out)
+# jnp.save("../outputs/gen_vdp_data.npy", out)
 

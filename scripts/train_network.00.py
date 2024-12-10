@@ -14,7 +14,7 @@ from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 
 window_length = 30
-data = jnp.load("outputs/VDP_oscillators.npy")[:, :, ::3]
+data = jnp.load("../outputs/VDP_oscillators.npy")[:, :, ::3]
 data = data.reshape(data.shape[0]*data.shape[1], data.shape[2], data.shape[3])
 
 
@@ -39,7 +39,7 @@ print(data.shape)
 # Plot data and save figure
 plt.plot(data[-1, :, 0])
 plt.plot(data[-1, :, 1])
-plt.savefig("figures/VDP_data_filtered.png")
+plt.savefig("../figures/VDP_data_filtered.png")
 
 import numpy as np
 skip = 300
@@ -54,26 +54,28 @@ print("Embedded data shape: ", data_tde.shape)
 ts, ys, model = jax_utils.train_NODE(
     # model=model,
     data_tde,
-    timesteps_per_trial=500,
-    t1=5.0,
+    timesteps_per_trial=10,
+    t1=1.0,
     width_size=128,
     hidden_size=256,
     ode_size=6,
     depth=2,
     batch_size=256,
     seed=6969,
-    lr_strategy=(8e-4, 3e-4),
-    steps_strategy=(40000, 70000),
-    length_strategy=(0.3, 1.0),
-    skip_strategy=(1, 2),
-    seeding_strategy=(0.1, 0.25),
+    lr_strategy=(1e-3,),
+    steps_strategy=(100000,),
+    length_strategy=(1.0,),
+    skip_strategy=(1,),
+    seeding_strategy=(None,),
     plot=False,
     print_every=1000,
     k=1,
+    use_recurrence=False,
+    augment_dims=16,
     linear=False,
     plot_fn=None,
 )
 
 # serialize the model
 import equinox as eqx
-eqx.tree_serialise_leaves("outputs/vdp_model.eqx", model)
+eqx.tree_serialise_leaves("../outputs/vdp_model_no_recurrence.eqx", model)

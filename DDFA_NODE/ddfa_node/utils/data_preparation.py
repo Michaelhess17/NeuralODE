@@ -1,5 +1,8 @@
 import numpy as np
 import torch
+from jax import vmap
+import jax.numpy as jnp
+
 def load_data_normalize(obs_dim, datafilepath, noise_std=0.2):
     data = np.load(datafilepath)
     traj_tot = np.load(datafilepath).reshape(72, 1500, obs_dim)
@@ -87,4 +90,10 @@ def prepare_train_val_data(time_delayed_data, sequence_length=500, skip=250, tra
     val_ts = torch.from_numpy(val_ts).float().to(device)
     return data_train, data_val, samp_ts, val_ts
     
-    
+def convolve_1d(x, window_length):
+    return jnp.convolve(x, jnp.ones((window_length,))/window_length, mode='valid')
+
+# Vectorize over features, passing window_length
+convolve_features = vmap(convolve_1d, in_axes=(1, None), out_axes=1)
+# Vectorize over trials, passing window_length
+convolve_trials = vmap(convolve_features, in_axes=(0, None), out_axes=0)

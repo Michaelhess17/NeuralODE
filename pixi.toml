@@ -37,3 +37,4 @@ diffrax = "*"
 optax = "*"
 ddfa_node = { path = "./DDFA_NODE", editable = true}
 delase = { path = "../delase", editable = true}
+lineax = ">=0.0.4, <0.0.5"

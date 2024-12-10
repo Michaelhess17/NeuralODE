@@ -1,140 +1,86 @@
-import time
 import jax
+import optax
+import diffrax
 import jax.numpy as jnp
 import jax.random as jr
-import jax.tree_util as jtu
 import jax.nn as jnn
-import diffrax
+
 import equinox as eqx
-import matplotlib.pyplot as plt
-import sys
-sys.path.append("/home/michael/Code/optax/")
-import optax
-sys.path.append("/home/michael/Synology/Desktop/Data/Python/Gait-Signatures/NeuralODE/DDFA_NODE/")
-from functools import partial
-from jax.experimental.host_callback import call
+from jax import tree_util
+import seaborn as sb
+import numpy as np
+
 import copy
+import time
+import matplotlib.pyplot as plt
+from ddfa_node.networks.jax_utils import Func, LinearFunc, dataloader
+from ddfa_node.utils.tde import takens_embedding, embed_data
+from ddfa_node.utils.data_preparation import convolve_trials, change_trial_length
 
-def change_trial_length(data, timesteps_per_subsample=100, skip=1, get_subject_ids=False):
-    """Resamples data into fixed length trials using dynamic slicing.
-    Only data argument is traced, others are static."""
-    num_subjects, num_time_steps, num_features = data.shape
-    num_subsamples = (num_time_steps - timesteps_per_subsample) // skip + 1
-    subsamples = jnp.zeros((num_subjects*num_subsamples, timesteps_per_subsample, num_features))
-    subject_ids = jnp.zeros((num_subjects*num_subsamples,))
 
-    def process_subject(i, carry):
-        subsamples, subject_ids = carry
+def create_causal_weight_matrix(D, scaling_factor):
+    """
+    Create a square causal weight matrix with a block-like structure.
+    
+    Parameters:
+    - D: int, the size of the input vector (number of features).
+    - scaling_factor: int, the number of output nodes per input feature.
+    
+    Returns:
+    - weight_matrix: numpy.ndarray, the square causal weight matrix of shape (scaling_factor * D, D).
+    """
+    # Calculate the number of output nodes (it will be scaling_factor * D)
+    num_output_nodes = int(scaling_factor * D)
+    
+    # Initialize the weight matrix with scaled normal distribution
+    weight_matrix = jr.normal(key=jr.PRNGKey(0), shape=(num_output_nodes, D))
+    
+    for i in range(D):
+        # For feature i (column i in the input), determine the corresponding block
+        end_row = (i + 1) * scaling_factor
         
-        def process_subsample(j, carry):
-            subsamples, subject_ids = carry
-            start_index = j * skip
-            subsample = jax.lax.dynamic_slice(
-                data[i], 
-                (start_index, 0), 
-                (timesteps_per_subsample, num_features)
-            )
-            idx = i*num_subsamples + j
-            subsamples = subsamples.at[idx].set(subsample)
-            subject_ids = subject_ids.at[idx].set(i)
-            return (subsamples, subject_ids)
-            
-        return jax.lax.fori_loop(0, num_subsamples, process_subsample, (subsamples, subject_ids))
+        # Map this feature (column i) to the appropriate rows in the weight matrix
+        # weight_matrix = weight_matrix.at[:end_row, i].set(1)
+        weight_matrix = weight_matrix.at[end_row:, i].set(0)
+    
+    return weight_matrix
 
-    subsamples, subject_ids = jax.lax.fori_loop(
-        0, num_subjects, process_subject, (subsamples, subject_ids)
-    )
 
-    if get_subject_ids:
-        return subsamples, subject_ids
-    return subsamples
-change_trial_length = jax.jit(change_trial_length, static_argnums=[1, 2, 3])
+def invert_causal_weight_matrix(D, scaling_factor):
+    """
+    Create a causal weight matrix that pools blocks to return to the original state space size.
+    Inputs:
+    - D: int, the size of the original input vector (number of features).
+    - scaling_factor: int, the number of output nodes per input feature.
+    """
+    inverted_matrix = jr.normal(key=jr.PRNGKey(0), shape=(D, D*scaling_factor))
+    
+    for i in range(D):
+        start_col = i * scaling_factor
+        end_col = D*scaling_factor
+        # inverted_matrix = inverted_matrix.at[i, start_col:end_col].set(1)
+        inverted_matrix = inverted_matrix.at[i, :start_col].set(0)
+        inverted_matrix = inverted_matrix.at[i, end_col:].set(0)
 
-def dataloader(arrays, batch_size, *, key):
-    dataset_size = arrays[0].shape[0]
-    indices = jnp.arange(dataset_size)
-    while True:
-        perm = jr.permutation(key, indices)
-        (key,) = jr.split(key, 1)
-        start = 0
-        end = batch_size
-        while start < dataset_size:
-            batch_perm = perm[start:end]
-            yield tuple(array[batch_perm] for array in arrays)
-            start = end
-            end = start + batch_size
+        
+    return inverted_matrix
 
-class Func(eqx.Module):
-    mlp: eqx.nn.MLP
-    scale: float
-
-    def __init__(self, data_size, width_size, depth, *, key, scale=1.0, **kwargs):
-        super().__init__(**kwargs)
-        self.scale = scale
-        self.mlp = eqx.nn.MLP(
-            in_size=data_size,
-            out_size=data_size,
-            width_size=width_size,
-            depth=depth,
-            activation=jnn.tanh,
-            final_activation=lambda x: x,
-            key=key,
-        )
-
-    def __call__(self, t, y, args):
-        return self.mlp(y)
 
 class CausalFunc(eqx.Module):
-    def __init__(self, data_size, width_size, depth, *, key, **kwargs):
-        super().__init__(**kwargs)
-        self.data_size = data_size
-        self.width_size = width_size
-        self.depth = depth
-        self.key = key
-        self.mlp = eqx.nn.MLP(
-            in_size=self.data_size,
-            out_size=self.data_size,
-            width_size=self.width_size,
-            depth=self.depth,
-            activation=jnn.tanh,
-            final_activation=lambda x: x,
-            key=self.key,
-        )
-
-    def __call__(self, t, y, args):
-        return self.mlp(y)
-    
-# Example MLP from Equinox
-class ExampleMLP(eqx.Module):
     layers: list
 
-    def __init__(self, in_size, out_size, width, depth, *, key, **kwargs):
+    def __init__(self, D, scaling_factor, depth, *, key=jr.PRNGKey(0), **kwargs):
         super().__init__(**kwargs)
-        keys = jr.split(key, depth + 1)
-        self.layers = []
-        for i in range(depth):
-            if i == 0:
-                self.layers.append(eqx.nn.Linear(in_size, width, key=keys[i]))
-            elif i < depth - 1:
-                self.layers.append(eqx.nn.Linear(width, width, key=keys[i]))
-            else:
-                self.layers.append(eqx.nn.Linear(width, out_size, key=keys[i]))
+        self.layers = [create_causal_weight_matrix(D, scaling_factor)]
+        for _ in range(depth - 1):
+            self.layers.append(create_causal_weight_matrix(D * scaling_factor, 1))
+        self.layers.append(invert_causal_weight_matrix(D, scaling_factor))
 
-    def __call__(self, x):
+    def __call__(self, t, x, args):
         for layer in self.layers[:-1]:
-            x = jax.nn.relu(layer(x))
-        return self.layers[-1](x)
-
-class LinearFunc(eqx.Module):
-    A: jnp.ndarray
-
-    def __init__(self, data_size, *, key, **kwargs):
-        super().__init__(**kwargs)
-        self.A = jr.uniform(key, (data_size, data_size), minval=-jnp.sqrt(1/3), maxval=jnp.sqrt(1/3))
-
-    def __call__(self, t, y, args):
-        return self.A @ y
-
+            x = jnp.tanh(layer @ x)
+        return self.layers[-1] @ x
+    
 class NeuralODE(eqx.Module):
     cell: eqx.nn.GRUCell
     func: eqx.Module
@@ -142,12 +88,16 @@ class NeuralODE(eqx.Module):
     ode_to_data: eqx.nn.MLP
     use_recurrence: bool
     linear: bool
+    causal: bool
     padding_layer: eqx.nn.MLP  # New layer for padding input
 
-    def __init__(self, data_size, width_size, hidden_size, ode_size, depth, augment_dims, *, key, use_recurrence=True, linear=False, **kwargs):
+    def __init__(self, data_size, width_size, hidden_size, ode_size, depth, augment_dims, *, key, use_recurrence=True, linear=False, causal=True, **kwargs):
         super().__init__(**kwargs)
+        if jnp.sum(jnp.array([linear, causal])) > 1:
+            raise ValueError("Only one of linear, use_recurrence, and causal can be True")
         self.use_recurrence = use_recurrence
         self.linear = linear
+        self.causal = causal
         rec_key, func_key, dec_key = jr.split(key, 3)
         if use_recurrence:
             self.cell = eqx.nn.GRUCell(data_size, hidden_size, key=rec_key)
@@ -171,6 +121,8 @@ class NeuralODE(eqx.Module):
 
         if linear:
             self.func = LinearFunc(ode_size, key=func_key)
+        elif causal:
+            self.func = CausalFunc(ode_size, width_size // ode_size, depth, key=func_key)
         else:
             self.func = Func(ode_size, width_size, depth, key=func_key)
 
@@ -230,25 +182,37 @@ def train_NODE(
     lr_strategy=(3e-3, 3e-3), steps_strategy=(500, 500),
     length_strategy=(0.1, 1), plot=True, print_every=100,
     seeding_strategy=(0.1, 0.1), skip_strategy=(50, 100),
-    use_recurrence=True, linear=False, model=None, plot_fn=None, *, k
+    use_recurrence=True, linear=False, causal=True, model=None, plot_fn=None, filter_spec=None, *, k
 ):
     key = jr.PRNGKey(seed)
     data_key, model_key, loader_key = jr.split(key, 3)
     ts = jnp.linspace(0.0, t1, timesteps_per_trial)
     features = data[0].shape[-1]
     
+    def filter_model(layer):
+        if isinstance(layer, jnp.ndarray) and layer.ndim == 2:
+            return layer != 0
+        else:
+            return True
+        
     if model is None:
         model = NeuralODE(features, width_size, hidden_size, ode_size, depth, augment_dims, key=model_key, use_recurrence=use_recurrence, linear=linear)
-    
-    @eqx.filter_value_and_grad
-    def grad_loss(model, ti, yi, seeding_steps):
-        y_pred = jax.vmap(model, in_axes=(None, 0))(ti, yi[:, :seeding_steps, :])
-        return jnp.mean(jnp.abs((yi - y_pred)))
+        filter_spec = jax.tree.map(filter_model, model)
     
     @eqx.filter_jit
-    def make_step(ti, yi, model, opt_state, seeding_steps):
-        loss, grads = grad_loss(model, ti, yi, seeding_steps)
-        updates, opt_state = optim.update(grads, opt_state, model)
+    def make_step(model, ti, yi, opt_state, seeding_steps, filter_spec):
+        @eqx.filter_value_and_grad
+        def loss(model, ti, yi, seeding_steps):
+            return jnp.mean(jnp.abs((jax.vmap(model, in_axes=(None, 0))(ti, yi[:, :seeding_steps, :]) - yi)))
+
+        loss, grads = loss(model, ti, yi, seeding_steps)
+        def mask_grad(grad, mask):
+            if grad is None or mask is None:
+                return None
+            else:
+                return grad * mask
+        masked_grads = jax.tree_util.tree_map(mask_grad, grads, filter_spec, is_leaf=lambda x: x is None)
+        updates, opt_state = optim.update(masked_grads, opt_state)
         model = eqx.apply_updates(model, updates)
         return loss, model, opt_state
     
@@ -287,7 +251,7 @@ def train_NODE(
             start = time.time()
             best_loss = jnp.inf
             for step, (yi,) in zip(range(steps), dataloader((_ys,), batch_size, key=loader_key)):
-                loss, model, opt_state = make_step(_ts, yi, model, opt_state, seeding_steps)
+                loss, model, opt_state = make_step(model, _ts, yi, opt_state, seeding_steps, filter_spec)
                 
                 if loss < best_loss:
                     best_model = copy.deepcopy(model)
@@ -307,6 +271,7 @@ def train_NODE(
                             ax.legend()
                             plt.tight_layout()
                             plt.show()
+                            plt.savefig("/home/michael/Synology/Python/NeuralODE/tmp/tmp.png")
                 
                         else:
                             plot_fn(model, _ts, _ys, seeding_steps)
@@ -318,21 +283,45 @@ def train_NODE(
     print(f"Training finished. Returning best model with loss: {best_loss}")
     return ts, ys, best_model
 
-def get_parameters(model):
-    params = jtu.tree_leaves(eqx.filter(model, eqx.is_array))
-    return jnp.sum(jnp.array([x.size for x in params]))
+# Example usage
+D = 5  # Size of the input vector
+scaling_factor = 12  # Number of output nodes per input feature
 
-def print_parameter_count(model):
-    # Get all trainable parameters
-    params = eqx.filter(model, eqx.is_array)
-    
-    total_params = 0
-    # Iterate through the parameter tree
-    for idx, param in enumerate(jtu.tree_flatten(params)[0]):
-        param_count = jnp.size(param)
-        # Create a string representation of the path
-        path_str = 'Layer ' + '.'.join(str(idx))
-        print(f"{path_str}: {param_count:,} parameters")
-        total_params += param_count
-    
-    print(f"\nTotal trainable parameters: {total_params:,}")
+
+# batch_size = 512
+# x = jr.normal(key=jr.PRNGKey(42), shape=(batch_size, D))
+# A = jr.normal(key=jr.PRNGKey(900), shape=(D, D))
+# y = jax.vmap(lambda x: A @ x)(x)
+# for i in range(10000):
+#     func, opt_state = make_step(func, x, y, opt_state)
+
+
+window_length = 30
+data = jnp.load("outputs/VDP_oscillators.npy")[:, :, ::3]
+data = data.reshape(data.shape[0]*data.shape[1], data.shape[2], data.shape[3])
+
+new_data = convolve_trials(data, window_length)
+# Standardize the data
+new_data = (new_data - jnp.mean(new_data, axis=1)[:, None, :]) / jnp.std(new_data, axis=1)[:, None, :]
+data = new_data
+print(data.shape)
+
+
+skip = 300
+_, k, τ = embed_data(np.array(data[:, skip:, :1]))
+
+data_tde = takens_embedding(data[:, :, :1], τ, k)
+
+features = data_tde.shape[-1]
+
+
+key = jr.PRNGKey(0)
+
+# train network
+ts, ys, model = train_NODE(data_tde, timesteps_per_trial=300, t1=5.0, width_size=128, hidden_size=256,
+    ode_size=8, depth=3, batch_size=256, seed=55, augment_dims=0,
+    lr_strategy=(3e-3, 3e-3), steps_strategy=(50000, 50000),
+    length_strategy=(0.5, 1), plot=True, print_every=1000,
+    seeding_strategy=(0.5, 0.5), skip_strategy=(5, 10),
+    use_recurrence=True, linear=False, causal=True, model=None, plot_fn=None, filter_spec=None, k=2)
+
