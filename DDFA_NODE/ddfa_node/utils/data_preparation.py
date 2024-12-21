@@ -1,5 +1,5 @@
 import numpy as np
-import torch
+# import torch
 from jax import vmap
 import jax.numpy as jnp
 
@@ -62,33 +62,33 @@ def augment_data_with_noise(data, n_copies=5, noise_std=0.1):
             new_data.append(trial + (np.random.randn(*trial.shape) * noise_std))
     return np.array(new_data)
 
-def prepare_train_val_data(time_delayed_data, sequence_length=500, skip=250, train_size=0.7, noise_std=0.1, n_noisy_copies=3,dt=0.025,device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-    # Subsample whole trials to smaller ones
-    data = change_trial_length(time_delayed_data, timesteps_per_subsample=sequence_length, skip=skip)
+# def prepare_train_val_data(time_delayed_data, sequence_length=500, skip=250, train_size=0.7, noise_std=0.1, n_noisy_copies=3,dt=0.025,device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+#     # Subsample whole trials to smaller ones
+#     data = change_trial_length(time_delayed_data, timesteps_per_subsample=sequence_length, skip=skip)
 
-    # Train/test splitting
-    data_train, data_val = split_data(data, train_size=train_size)
+#     # Train/test splitting
+#     data_train, data_val = split_data(data, train_size=train_size)
 
-    # Add noise to data
-    data_train = augment_data_with_noise(data_train, n_copies=n_noisy_copies, noise_std=noise_std)
+#     # Add noise to data
+#     data_train = augment_data_with_noise(data_train, n_copies=n_noisy_copies, noise_std=noise_std)
 
-    # put data on the GPU if present
-    data_train = torch.from_numpy(data_train).float().to(device) 
-    data_val = torch.from_numpy(data_val).float().to(device)
+#     # put data on the GPU if present
+#     data_train = torch.from_numpy(data_train).float().to(device) 
+#     data_val = torch.from_numpy(data_val).float().to(device)
     
-    # prepare timestep data for ODE solver to use
-    tot_num = data_train.shape[1]
-    ts_num = tot_num * dt
+#     # prepare timestep data for ODE solver to use
+#     tot_num = data_train.shape[1]
+#     ts_num = tot_num * dt
 
-    samp_ts = np.arange(0, ts_num, step=dt)
-    samp_ts = torch.from_numpy(samp_ts).float().to(device)
+#     samp_ts = np.arange(0, ts_num, step=dt)
+#     samp_ts = torch.from_numpy(samp_ts).float().to(device)
     
-    val_tot_num = data_val.shape[1]
-    val_ts_num = val_tot_num * dt
+#     val_tot_num = data_val.shape[1]
+#     val_ts_num = val_tot_num * dt
     
-    val_ts = np.arange(0, val_ts_num, step=dt)
-    val_ts = torch.from_numpy(val_ts).float().to(device)
-    return data_train, data_val, samp_ts, val_ts
+#     val_ts = np.arange(0, val_ts_num, step=dt)
+#     val_ts = torch.from_numpy(val_ts).float().to(device)
+#     return data_train, data_val, samp_ts, val_ts
     
 def convolve_1d(x, window_length):
     return jnp.convolve(x, jnp.ones((window_length,))/window_length, mode='valid')
