@@ -1,40 +1,27 @@
 [project]
-authors = ["Michael Hess <michaelhess17@yahoo.com>"]
-channels = ["conda-forge", "pytorch", "nvidia"]
-description = "Neural ODE models used for studying the dynamical stability of walking animals"
+authors = ["Michael Hess <Michaelhess17@yahoo.com>"]
+channels = ["conda-forge"]
+description = "Add a short description here"
 name = "NeuralODE"
-platforms = ["linux-64", "osx-64", "osx-arm64"]
+platforms = ["linux-64"]
 version = "0.1.0"
-
-[system-requirements]
-#cuda = "12.6"
 
 [tasks]
 
 [dependencies]
-python = "*"
-pytorch = "*"
-torchvision = "*"
-jupyterlab = "*"
-matplotlib = "*"
-tqdm = "*"
-torchdiffeq = "*"
-ray-tune = "*"
-ipywidgets = "*"
-seaborn = "*"
-polars = "*"
-git = "*"
-pip = "*"
-scikit-learn = "*"
-jupyter = "*"
+python = "3.11.*"
+seaborn = ">=0.13.2,<0.14"
+polars = ">=1.17.1,<2"
+numpy = ">=2.2.0,<3"
+matplotlib = ">=3.10.0,<4"
+scikit-learn = ">=1.6.0,<2"
 resample = ">=1.10.1,<2"
-numpy = ">=2.1.2,<3"
-pytest = ">=8.3.3,<9"
+tqdm = ">=4.67.1,<5"
+ipython = ">=8.31.0,<9"
 
 [pypi-dependencies]
-jax = { version = "*", extras = ["cuda12"] }
-diffrax = "*"
-optax = "*"
+jax = {version = "*", extras = ["cuda12_pip"]}
+diffrax = ">=0.6.1, <0.7"
+optax = ">=0.2.4, <0.3"
 ddfa_node = { path = "./DDFA_NODE", editable = true}
-delase = { path = "../delase", editable = true}
-lineax = ">=0.0.4, <0.0.5"
+#delase = { path = "../delase", editable = true}

@@ -135,14 +135,15 @@ class NeuralODE(eqx.Module):
                 activation=jnn.tanh,
                 key=dec_key,
             )
-            self.ode_to_data = eqx.nn.MLP(
-                in_size=ode_size,
-                out_size=data_size,
-                width_size=width_size,
-                depth=2,
-                activation=lambda x: x,
-                key=dec_key,
-            )
+            # self.ode_to_data = eqx.nn.MLP(
+            #     in_size=ode_size,
+            #     out_size=data_size,
+            #     width_size=width_size,
+            #     depth=2,
+            #     activation=lambda x: x,
+            #     key=dec_key,
+            # )
+            self.ode_to_data = None
         else:
             self.hidden_to_ode = None
             self.ode_to_data = None
@@ -170,10 +171,10 @@ class NeuralODE(eqx.Module):
             saveat=diffrax.SaveAt(ts=ts),
         )
         ys = solution.ys
-        if self.use_recurrence or self.padding_layer is not None:
-            out = jax.vmap(self.ode_to_data)(ys)
-        else:
-            out = ys
+        # if self.use_recurrence or self.padding_layer is not None:
+            # out = jax.vmap(self.ode_to_data)(ys)
+        # else:
+        out = ys
         return out
 
 def train_NODE(
@@ -264,9 +265,10 @@ def train_NODE(
                     if plot:
                 
                         if plot_fn is None:
+                            plt.clf()
                             ax = plt.subplot(111, projection="3d")
                             ax.scatter(_ys[0, :, 0], _ys[0, :, k], _ys[0, :, 2*k], c="dodgerblue", label="Data")
-                            model_y = model(_ts, _ys[0, :seeding_steps])
+                            model_y = best_model(_ts, _ys[0, :seeding_steps])
                             ax.scatter(model_y[:, 0], model_y[:, k], model_y[:, 2*k], c="crimson", label="Model")
                             ax.legend()
                             plt.tight_layout()
@@ -318,10 +320,10 @@ features = data_tde.shape[-1]
 key = jr.PRNGKey(0)
 
 # train network
-ts, ys, model = train_NODE(data_tde, timesteps_per_trial=300, t1=5.0, width_size=128, hidden_size=256,
-    ode_size=8, depth=3, batch_size=256, seed=55, augment_dims=0,
+ts, ys, model = train_NODE(data_tde, timesteps_per_trial=300, t1=3.0, width_size=128, hidden_size=256,
+    ode_size=5, depth=3, batch_size=128, seed=55, augment_dims=0,
     lr_strategy=(3e-3, 3e-3), steps_strategy=(50000, 50000),
-    length_strategy=(0.5, 1), plot=True, print_every=1000,
-    seeding_strategy=(0.5, 0.5), skip_strategy=(5, 10),
+    length_strategy=(0.5, 1), plot=True, print_every=100,
+    seeding_strategy=(0.5, 0.5), skip_strategy=(3, 6),
     use_recurrence=True, linear=False, causal=True, model=None, plot_fn=None, filter_spec=None, k=2)
 

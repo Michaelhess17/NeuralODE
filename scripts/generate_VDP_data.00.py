@@ -5,6 +5,9 @@ from diffrax import VirtualBrownianTree, MultiTerm, ODETerm, ControlTerm
 import matplotlib.pyplot as plt
 from typing import Tuple
 import equinox as eqx
+import pathlib
+
+project_path = pathlib.Path("/mnt/Mouse_Face_Project/Desktop/Data/Python/NeuralODE/")
 
 # Set random seed for reproducibility
 key = jax.random.PRNGKey(42)
@@ -41,26 +44,28 @@ def simulate_single_oscillator(
     
     # Define the terms for the SDE
     drift_term = ODETerm(oscillator.drift)
-    diffusion_term = ControlTerm(
-        oscillator.diffusion, 
-        VirtualBrownianTree(
-            key=key, 
-            t0=t_span[0], 
-            t1=t_span[1], 
-            tol=1e-3, 
-            shape=(1,)
-        )
-    )
+    # diffusion_term = ControlTerm(
+    #     oscillator.diffusion, 
+    #     VirtualBrownianTree(
+    #         key=key, 
+    #         t0=t_span[0], 
+    #         t1=t_span[1], 
+    #         tol=1e-3, 
+    #         shape=(1,)
+    #     )
+    # )
     
     # Combine terms and solve
-    terms = MultiTerm(drift_term, diffusion_term)
-    solver = diffrax.Euler()
+    # terms = MultiTerm(drift_term, diffusion_term)
+    terms = drift_term
+    solver = diffrax.Kvaerno5()
     solution = diffrax.diffeqsolve(
         terms,
         solver,
         t0=t_span[0],
         t1=t_span[1],
         dt0=dt,
+        stepsize_controller=diffrax.PIDController(rtol=1e-6, atol=1e-8),
         y0=initial_condition,
         saveat=diffrax.SaveAt(ts=ts),
         max_steps=None
@@ -81,7 +86,7 @@ def simulate_oscillators(
     # Generate random mu values and initial conditions
     key1, key2, key3 = jax.random.split(key, 3)
     mus = jnp.linspace(mu_range[0], mu_range[1], n_oscillators, dtype=jnp.float32)
-    initial_conditions = 2*jax.random.normal(key2, shape=(n_replicates, n_oscillators, 2))
+    initial_conditions = jax.random.uniform(key2, shape=(n_replicates, n_oscillators, 2), minval=-3, maxval=3)
     
     # Generate simulation keys for each oscillator
     sim_keys = jax.random.split(key3, n_oscillators)
@@ -102,7 +107,7 @@ def simulate_oscillators(
 def main():
 
     # Simulation parameters
-    n_oscillators = 30  # Now we can easily handle more oscillators!
+    n_oscillators = 30
     mu_range = (1.0, 3.0)
     t_span = (0., 120.)
     n_replicates = 10
@@ -140,7 +145,7 @@ def main():
     plt.grid(True)
 
     plt.tight_layout()
-    plt.savefig("figures/oscillators.png")
+    plt.savefig(project_path.joinpath("figures/oscillators.png"))
 
 
     # Clear the figure
@@ -159,10 +164,10 @@ def main():
     plt.scatter(mus, jnp.abs(FMs[:, 1]), label="FM 2")
     plt.legend()
     plt.show()
-    plt.savefig("figures/VDP_FMs.png")
+    plt.savefig(project_path.joinpath("figures/VDP_FMs.png"))
 
-    jnp.save("outputs/VDP_oscillators.npy", solutions)
-    jnp.save("outputs/VDP_FMs.npy", FMs)
+    jnp.save(project_path.joinpath("outputs/VDP_oscillators.npy"), solutions)
+    jnp.save(project_path.joinpath("outputs/VDP_FMs.npy"), FMs)
     return
 
 if __name__ == "__main__":
