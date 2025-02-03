@@ -297,9 +297,9 @@ def train_NODE(
             for step, (yi,) in zip(range(steps), dataloader((_ys,), batch_size, key=loader_key)):
                 loss, model, opt_state = make_step(_ts, yi, model, opt_state, seeding_steps, lmbda)
                 
-                #if loss < best_loss:
-                #    best_model = copy.deepcopy(model)
-                #    best_loss = copy.deepcopy(loss)
+                if loss < best_loss:
+                   best_model = copy.deepcopy(model)
+                   best_loss = copy.deepcopy(loss)
                 
                 if (step % print_every) == 0 or step == steps - 1:
                     end = time.time()
@@ -325,11 +325,11 @@ def train_NODE(
     
     except (KeyboardInterrupt, eqx.EquinoxRuntimeError) as e:
         print(f"Exiting early (iteration {step}) due to {e}. Returning best model with loss: {best_loss}")
-        # return ts, ys, best_model
-        return ts, ys, model
+        return ts, ys, best_model
+        # return ts, ys, model
     print(f"Training finished. Returning best model with loss: {best_loss}")
-    # return ts, ys, best_model
-    return ts, ys, model
+    return ts, ys, best_model
+    # return ts, ys, model
 
 def get_parameters(model):
     params = jtu.tree_leaves(eqx.filter(model, eqx.is_array))

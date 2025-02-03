@@ -104,7 +104,7 @@ plt.plot(data[-1, :, 1])
 plt.savefig(project_path.joinpath("figures/VDP_data_filtered.png"))
 
 import numpy as np
-skip = 300
+skip = 10
 _, k, τ = embed_data(np.array(data[:, :, :]))
 
 data_tde = takens_embedding(data[:, :, :], τ, k)
@@ -210,7 +210,8 @@ ts, ys, model = jax_utils.train_NODE(
 ax = plt.subplot(111, projection="3d")
 ax.scatter(data_tde[0, :, 0], data_tde[0, :, 1], data_tde[0, :, 2], c="dodgerblue", label="Data")
 
-model_y = model(ts, data_tde[0, :1, :])
+ts = jnp.linspace(0, t1*50, args.timesteps_per_trial*100)
+model_y = model(ts, data_tde[0, 300:301, :])
 ax.scatter(model_y[:, 0], model_y[:, 1], model_y[:, 2], c="crimson", label="Model")
 ax.legend()
 plt.tight_layout()
