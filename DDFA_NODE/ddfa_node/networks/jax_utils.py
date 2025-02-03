@@ -191,8 +191,8 @@ class NeuralODE(eqx.Module):
 
         solution = diffrax.diffeqsolve(
             diffrax.ODETerm(self.func),
-            #diffrax.Tsit5(),
-            diffrax.Kvaerno5(),
+            diffrax.Tsit5(),
+            #diffrax.Kvaerno5(),
             t0=ts[0],
             t1=ts[-1],
             dt0=ts[1] - ts[0],
@@ -235,9 +235,11 @@ def train_NODE(
         model = eqx.combine(diff_model, static_model)
         y_pred = jax.vmap(model, in_axes=(None, 0))(ti, yi[:, :seeding_steps, :])
         params, _ = jtu.tree_flatten(eqx.filter(model, eqx.is_array))
-        mse_loss = jnp.mean(jnp.abs((yi - y_pred))) 
-        l1_loss = jnp.sum(jnp.abs(jnp.concatenate([param.ravel() for param in params])))
-        return mse_loss + lmbda*l1_loss
+        # mse_loss = jnp.mean(jnp.abs((yi - y_pred))) 
+        # l2_loss = jnp.sum(jnp.square(jnp.concatenate([param.ravel() for param in params])))
+        # return mse_loss + lmbda*l2_loss
+        return jnp.mean(jnp.abs((yi - y_pred))) + lmbda*jnp.sum(jnp.square(jnp.concatenate([param.ravel() for param in params])))
+
     
     @eqx.filter_jit
     def make_step(ti, yi, model, opt_state, seeding_steps, lmbda):
