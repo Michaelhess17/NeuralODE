@@ -107,10 +107,10 @@ def simulate_oscillators(
 def main():
 
     # Simulation parameters
-    n_oscillators = 30
+    n_oscillators = 50
     mu_range = (1.0, 3.0)
-    t_span = (0., 120.)
-    n_replicates = 10
+    t_span = (0., 30.)
+    n_replicates = 15
     dt = 0.02
 
     key = jax.random.PRNGKey(42)
