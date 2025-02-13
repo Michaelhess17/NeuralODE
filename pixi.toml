@@ -18,6 +18,10 @@ scikit-learn = ">=1.6.0,<2"
 resample = ">=1.10.1,<2"
 tqdm = ">=4.67.1,<5"
 ipython = ">=8.31.0,<9"
+ray-core = ">=2.42.0,<3"
+ray-train = ">=2.42.0,<3"
+ray-tune = ">=2.42.0,<3"
+ray-data = ">=2.42.0,<3"
 
 [pypi-dependencies]
 jax = {version = "*", extras = ["cuda12_pip"]}
