@@ -191,13 +191,14 @@ class NeuralODE(eqx.Module):
 
         solution = diffrax.diffeqsolve(
             diffrax.ODETerm(self.func),
-            diffrax.Tsit5(),
+            diffrax.Euler(),
+            #diffrax.Tsit5(),
             #diffrax.Kvaerno5(),
             t0=ts[0],
             t1=ts[-1],
             dt0=ts[1] - ts[0],
             y0=y0,
-            stepsize_controller=diffrax.PIDController(rtol=1e-4, atol=1e-6),
+            # stepsize_controller=diffrax.PIDController(rtol=1e-3, atol=1e-6),
             saveat=diffrax.SaveAt(ts=ts),
             max_steps=int(2**16)
         )
@@ -209,7 +210,7 @@ class NeuralODE(eqx.Module):
         return out
     
 def train_NODE(
-    data, timesteps_per_trial=500, t1=5.0, width_size=16, hidden_size=256,
+    data, timesteps_per_trial=500, ts=None, t1=None, width_size=16, hidden_size=256,
     depth=2, batch_size=256, seed=55, augment_dims=0,
     lr_strategy=(3e-3, 3e-3), steps_strategy=(500, 500),
     length_strategy=(0.1, 1), plot=True, print_every=100,
@@ -219,7 +220,8 @@ def train_NODE(
 ):
     key = jr.PRNGKey(seed)
     data_key, model_key, loader_key = jr.split(key, 3)
-    ts = jnp.linspace(0.0, t1, timesteps_per_trial)
+    if ts is None:
+        ts = jnp.tile(jnp.linspace(0.0, t1, timesteps_per_trial), reps=(data.shape[0], 1))
     features = data[0].shape[-1]
     
     if model is None:
@@ -233,9 +235,9 @@ def train_NODE(
     @eqx.filter_value_and_grad
     def grad_loss(diff_model, static_model, ti, yi, seeding_steps, lmbda):
         model = eqx.combine(diff_model, static_model)
-        y_pred = jax.vmap(model, in_axes=(None, 0))(ti, yi[:, :seeding_steps, :])
+        y_pred = jax.vmap(model, in_axes=(0, 0))(ti, yi[:, :seeding_steps, :])
         params, _ = jtu.tree_flatten(eqx.filter(model, eqx.is_array))
-        # mse_loss = jnp.mean(jnp.abs((yi - y_pred))) 
+        # mse_loss = jnp.mean(jnp.abs((yi - y_pred)))
         # l2_loss = jnp.sum(jnp.square(jnp.concatenate([param.ravel() for param in params])))
         # return mse_loss + lmbda*l2_loss
         return jnp.mean(jnp.abs((yi - y_pred))) + lmbda*jnp.sum(jnp.square(jnp.concatenate([param.ravel() for param in params])))
@@ -273,18 +275,24 @@ def train_NODE(
             else:
                 skip_use = skip
             ys = []
+            new_ts = []
             for idx in range(len(data)):
                 ys.append(change_trial_length(jnp.expand_dims(data[idx], axis=0), timesteps_per_subsample=int(timesteps_per_trial * length), skip=skip_use))
+                # expand ts to (1, timesteps_per_trial, 1)
+                new_ts.append(jnp.tile(change_trial_length(jnp.expand_dims(jnp.expand_dims(ts[idx], axis=0), axis=-1), timesteps_per_subsample=int(timesteps_per_trial * length), skip=skip_use).squeeze(), reps=(ys[-1].shape[0], 1)))
             new_ys = []
-            for y in ys:
+            new_new_ts = []
+            for (t, y) in zip(new_ts, ys):
                 if len(y.shape) > 1:
                     new_ys.append(y)
+                    new_new_ts.append(t)
             ys = jnp.concatenate(new_ys).astype(float)
+            ts = jnp.concatenate(new_new_ts, axis=0).astype(float)
             # shuffle the data
             ys = jax.random.permutation(loader_key, ys)
-            print(ys.shape)
+            ts = jax.random.permutation(loader_key, ts)
             trials, timesteps, features = ys.shape
-            _ts = ts[: int(timesteps)]
+            _ts = ts[:, : int(timesteps)]
             _ys = ys[:, : int(timesteps)]
             if seeding is not None:
                 seeding_steps = int(timesteps_per_trial * seeding)
@@ -294,8 +302,8 @@ def train_NODE(
             # Training loop
             start = time.time()
             best_loss = jnp.inf
-            for step, (yi,) in zip(range(steps), dataloader((_ys,), batch_size, key=loader_key)):
-                loss, model, opt_state = make_step(_ts, yi, model, opt_state, seeding_steps, lmbda)
+            for step, (ti, yi,) in zip(range(steps), dataloader((_ts, _ys,), batch_size, key=loader_key)):
+                loss, model, opt_state = make_step(ti, yi, model, opt_state, seeding_steps, lmbda)
                 
                 if loss < best_loss:
                    best_model = copy.deepcopy(model)
@@ -310,7 +318,7 @@ def train_NODE(
                         if plot_fn is None:
                             ax = plt.subplot(111, projection="3d")
                             ax.scatter(_ys[0, :, 0], _ys[0, :, k], _ys[0, :, 2*k], c="dodgerblue", label="Data")
-                            model_y = model(_ts, _ys[0, :seeding_steps])
+                            model_y = model(_ts[0], _ys[0, :seeding_steps])
                             ax.scatter(model_y[:, 0], model_y[:, k], model_y[:, 2*k], c="crimson", label="Model")
                             ax.legend()
                             plt.tight_layout()
