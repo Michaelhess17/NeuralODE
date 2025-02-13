@@ -1,49 +1,7 @@
 import os
-import argparse
-# Add argument parser before training
-def get_args():
-    parser = argparse.ArgumentParser(description='Train Neural ODE with configurable parameters')
-    parser.add_argument('--timesteps_per_trial', type=int, default=200,
-                      help='Number of timesteps per trial')
-    parser.add_argument('--width_size', type=int, default=128,
-                      help='Width size of the network')
-    parser.add_argument('--hidden_size', type=int, default=256,
-                      help='Hidden size of the network')
-    parser.add_argument('--depth', type=int, default=3,
-                      help='Depth of the network')
-    parser.add_argument('--batch_size', type=int, default=2**10,
-                      help='Batch size for training')
-    parser.add_argument('--seed', type=int, default=6970,
-                      help='Random seed')
-    parser.add_argument('--lr', type=float, default=1e-3,
-                      help='Learning rate')
-    parser.add_argument('--steps', type=int, default=20000,
-                      help='Number of training steps')
-    parser.add_argument('--length', type=float, default=1.0,
-                      help='Length parameter')
-    parser.add_argument('--skip', type=int, default=10,
-                      help='Skip parameter')
-    parser.add_argument('--seeding', type=float, default=1,
-                      help='Seeding parameter')
-    parser.add_argument('--k', type=int, default=1,
-                      help='k parameter')
-    parser.add_argument('--augment_dims', type=int, default=0,
-                      help='Number of augmented dimensions')
-    parser.add_argument('--use_recurrence', action='store_true',
-                      help='Use recurrence in the model')
-    parser.add_argument('--use_linear', action='store_true', default=True,
-                      help='Use linear layer in the model')
-    parser.add_argument('--only_linear', action='store_true',
-                      help='Use only linear layer')
-    parser.add_argument('--optim_type', type=str, default='adabelief',
-                      help='Optimizer type')
-    parser.add_argument('--lmbda', type=float, default=0.0001,
-                      help='Lambda parameter')
-    parser.add_argument("--GPU", type=int, default=0)
-    return parser.parse_args()
-
-args = get_args()
 # Set environment variables
+from ddfa_node import embed_data, takens_embedding, change_trial_length, split_data, phaser, stats as statistics, jax_utils
+args = jax_utils.get_args()
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["CUDA_VISIBLE_DEVICES"] = f"{args.GPU}"
 
@@ -53,10 +11,11 @@ import jax.numpy as jnp
 from jax import vmap, jit
 import pathlib
 import equinox as eqx
-from ddfa_node import embed_data, takens_embedding, change_trial_length, split_data, phaser, stats as statistics, jax_utils
 import ddfa_node
 from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
+from argparse import ArgumentParser
+import json
 # set 64-bit mode
 # jax.config.update("jax_enable_x64", True)
 # don't preallocate memory for XLA
@@ -74,7 +33,7 @@ new_data = jax_utils.convolve_trials(data[:, :, :1])
 
 # Use a savgol filter to get first derivative
 polyorder = 4
-dt = 1/20
+dt = 1/10
 # new_data_deriv = savgol_filter(new_data, window_length//2, polyorder, deriv=1, delta=dt, axis=1)
 new_data_deriv = jnp.gradient(new_data, dt, axis=1)
 new_data = jnp.concatenate([new_data, new_data_deriv], axis=2)
@@ -112,6 +71,7 @@ data_tde = takens_embedding(data[:, :, :], τ, k)
 print("Embedded data shape: ", data_tde.shape)
 
 t1 = args.timesteps_per_trial * dt
+ts = jnp.tile(jnp.linspace(0, t1, args.timesteps_per_trial), reps=(data_tde.shape[0], 1))
 
 ts, ys, model = jax_utils.train_NODE(
     data_tde,
@@ -210,8 +170,8 @@ ts, ys, model = jax_utils.train_NODE(
 ax = plt.subplot(111, projection="3d")
 ax.scatter(data_tde[0, :, 0], data_tde[0, :, 1], data_tde[0, :, 2], c="dodgerblue", label="Data")
 
-ts = jnp.linspace(0, t1*50, args.timesteps_per_trial*100)
-model_y = model(ts, data_tde[0, :1, :])
+ts = jnp.linspace(0, t1*1.5, args.timesteps_per_trial*50)
+model_y = model(ts, data_tde[0, :args.timesteps_per_trial, :])
 ax.scatter(model_y[:, 0], model_y[:, 1], model_y[:, 2], c="crimson", label="Model")
 ax.legend()
 plt.tight_layout()
@@ -219,3 +179,19 @@ plt.tight_layout()
 plt.savefig("/mnt/Mouse_Face_Project/Desktop/Data/Python/NeuralODE/figures/trained_model_generation.png")
 plt.clf(); plt.cla()
 plt.close()
+
+
+def save_config():
+    with open('commandline_args.txt', 'w') as f:
+        json.dump(args.__dict__, f, indent=2)
+
+
+def load_config():
+    parser = ArgumentParser()
+    args = parser.parse_args()
+    with open('commandline_args.txt', 'r') as f:
+        args.__dict__ = json.load(f)
+
+
+if args.save_config:
+    save_config()
